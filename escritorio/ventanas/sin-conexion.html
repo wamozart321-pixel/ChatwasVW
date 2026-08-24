@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>WhatsWV — sin conexión</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --fondo: #0f172a;
+        --panel: #1e293b;
+        --borde: #334155;
+        --texto: #e2e8f0;
+        --suave: #94a3b8;
+        --verde: #16a34a;
+        --ambar: #fbbf24;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--fondo);
+        color: var(--texto);
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        padding: 24px;
+      }
+      .caja {
+        width: 100%;
+        max-width: 460px;
+        background: var(--panel);
+        border: 1px solid var(--borde);
+        border-radius: 14px;
+        padding: 32px;
+        text-align: center;
+      }
+      .punto {
+        width: 46px;
+        height: 46px;
+        margin: 0 auto 18px;
+        border-radius: 50%;
+        background: rgba(251, 191, 36, 0.15);
+        display: grid;
+        place-items: center;
+        font-size: 24px;
+      }
+      h1 { margin: 0 0 10px; font-size: 19px; }
+      p { margin: 0 0 8px; color: var(--suave); font-size: 14px; line-height: 1.6; }
+      .servidor {
+        margin: 16px 0 22px;
+        font-family: Consolas, monospace;
+        font-size: 13px;
+        color: var(--texto);
+        background: #0f172a;
+        border: 1px solid var(--borde);
+        border-radius: 8px;
+        padding: 9px 12px;
+        word-break: break-all;
+      }
+      .botones { display: flex; gap: 10px; }
+      button {
+        flex: 1;
+        padding: 11px;
+        border: 0;
+        border-radius: 9px;
+        font-size: 14px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+      }
+      .principal { background: var(--verde); color: #fff; }
+      .secundario { background: transparent; border: 1px solid var(--borde); color: var(--suave); }
+      .lista {
+        text-align: left;
+        margin: 0 0 22px;
+        padding-left: 18px;
+        color: var(--suave);
+        font-size: 13px;
+        line-height: 1.8;
+      }
+      .reintento { margin-top: 14px; font-size: 12px; color: var(--suave); min-height: 16px; }
+    </style>
+  </head>
+  <body>
+    <div class="caja">
+      <div class="punto">⚠</div>
+      <h1>No se pudo conectar con el servidor</h1>
+      <p>La bandeja no responde. Mientras tanto no entran ni salen mensajes.</p>
+
+      <div class="servidor" id="servidor"></div>
+
+      <ul class="lista">
+        <li>Revisa que tengas internet.</li>
+        <li>Si los demás asesores tampoco pueden entrar, el servidor está caído: avisa a quien lo administra.</li>
+        <li>Si solo te pasa a vos, probá reintentar.</li>
+      </ul>
+
+      <div class="botones">
+        <button class="principal" id="reintentar">Reintentar</button>
+        <button class="secundario" id="cambiar">Cambiar servidor</button>
+      </div>
+      <div class="reintento" id="estado"></div>
+    </div>
+
+    <script>
+      const servidor = new URLSearchParams(location.search).get('servidor') || 'sin configurar';
+      document.getElementById('servidor').textContent = servidor;
+
+      const estado = document.getElementById('estado');
+      const boton = document.getElementById('reintentar');
+
+      let segundos = 15;
+      let solo = null;
+
+      // Reintenta solo: casi siempre es un corte de internet de un rato y el
+      // asesor no tiene por qué quedarse mirando la pantalla.
+      function contar() {
+        estado.textContent = `Reintentando solo en ${segundos} s…`;
+        if (segundos-- <= 0) {
+          clearInterval(solo);
+          reintentar();
+        }
+      }
+      solo = setInterval(contar, 1000);
+      contar();
+
+      async function reintentar() {
+        clearInterval(solo);
+        boton.disabled = true;
+        estado.textContent = 'Probando…';
+        await window.whatswv.reintentar();
+        // Si sigue caído vuelve a cargar esta misma pantalla y el conteo arranca de nuevo.
+        boton.disabled = false;
+      }
+
+      boton.addEventListener('click', reintentar);
+      document.getElementById('cambiar').addEventListener('click', () => {
+        clearInterval(solo);
+        window.whatswv.cambiarServidor();
+      });
+    </script>
+  </body>
+</html>

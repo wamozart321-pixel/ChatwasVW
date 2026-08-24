@@ -1,0 +1,21 @@
+# Opcional: solo si instalas Docker Desktop. La alternativa sin Docker es Neon.
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: whatswv
+      POSTGRES_PASSWORD: whatswv
+      POSTGRES_DB: whatswv
+    ports:
+      - '5432:5432'
+    volumes:
+      - datos:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U whatswv']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  datos:

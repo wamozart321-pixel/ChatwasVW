@@ -1,0 +1,1 @@
+ALTER TABLE "conversations" ADD COLUMN "asignada_auto" boolean DEFAULT false NOT NULL;

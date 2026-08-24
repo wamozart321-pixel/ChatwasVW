@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>WhatsWV — servidor</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --fondo: #0f172a;
+        --panel: #1e293b;
+        --borde: #334155;
+        --texto: #e2e8f0;
+        --suave: #94a3b8;
+        --verde: #16a34a;
+        --rojo: #f87171;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--fondo);
+        color: var(--texto);
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        padding: 24px;
+      }
+      .caja {
+        width: 100%;
+        max-width: 420px;
+        background: var(--panel);
+        border: 1px solid var(--borde);
+        border-radius: 14px;
+        padding: 32px;
+      }
+      h1 { margin: 0 0 6px; font-size: 20px; }
+      p.sub { margin: 0 0 24px; color: var(--suave); font-size: 14px; line-height: 1.5; }
+      label { display: block; font-size: 13px; margin-bottom: 8px; color: var(--suave); }
+      input {
+        width: 100%;
+        padding: 11px 13px;
+        border-radius: 9px;
+        border: 1px solid var(--borde);
+        background: #0f172a;
+        color: var(--texto);
+        font-size: 15px;
+        font-family: inherit;
+      }
+      input:focus { outline: 2px solid var(--verde); outline-offset: 1px; }
+      button {
+        width: 100%;
+        margin-top: 18px;
+        padding: 11px;
+        border: 0;
+        border-radius: 9px;
+        background: var(--verde);
+        color: #fff;
+        font-size: 15px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.6; cursor: default; }
+      .error {
+        margin-top: 14px;
+        color: var(--rojo);
+        font-size: 13px;
+        line-height: 1.5;
+        min-height: 18px;
+      }
+      .pie { margin-top: 22px; font-size: 12px; color: var(--suave); line-height: 1.5; }
+      code { background: #0f172a; padding: 1px 5px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <div class="caja">
+      <h1>Conectar con el servidor</h1>
+      <p class="sub">
+        Esta es la dirección de la bandeja del negocio. Te la pasa quien administra
+        el sistema y se escribe una sola vez.
+      </p>
+
+      <label for="url">Dirección del servidor</label>
+      <input id="url" type="text" placeholder="bandeja.chatwasvw.com" autocomplete="off" />
+
+      <button id="guardar">Conectar</button>
+      <div class="error" id="error"></div>
+
+      <p class="pie">
+        Si no la sabes, pregúntala antes de seguir. Sin el servidor correcto la app
+        no muestra ninguna conversación.
+      </p>
+    </div>
+
+    <script>
+      const campo = document.getElementById('url');
+      const boton = document.getElementById('guardar');
+      const error = document.getElementById('error');
+
+      // La ventana llega con ?actual= cuando se entra desde "Cambiar servidor…".
+      const actual = new URLSearchParams(location.search).get('actual');
+      if (actual) campo.value = actual;
+      campo.focus();
+
+      async function conectar() {
+        error.textContent = '';
+        boton.disabled = true;
+        boton.textContent = 'Probando…';
+
+        const r = await window.whatswv.guardarServidor(campo.value);
+
+        if (!r.ok) {
+          error.textContent = r.error;
+          boton.disabled = false;
+          boton.textContent = 'Conectar';
+        }
+      }
+
+      boton.addEventListener('click', conectar);
+      campo.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') conectar();
+      });
+    </script>
+  </body>
+</html>

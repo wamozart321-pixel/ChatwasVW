@@ -1,0 +1,48 @@
+{
+  "name": "whatswv-escritorio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WhatsWV - bandeja de WhatsApp para el equipo, como app de Windows",
+  "main": "principal.js",
+  "scripts": {
+    "dev": "electron .",
+    "empaquetar": "electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.repuestosjhonpardo.whatswv",
+    "productName": "WhatsWV",
+    "copyright": "Repuestos Volkswagen Jhon Pardo",
+    "directories": {
+      "output": "salida"
+    },
+    "files": [
+      "principal.js",
+      "precarga.js",
+      "ventanas/**/*",
+      "recursos/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "recursos/icono.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "WhatsWV",
+      "installerLanguages": ["es_ES"],
+      "language": "1034"
+    }
+  }
+}

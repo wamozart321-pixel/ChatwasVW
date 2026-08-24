@@ -1,0 +1,48 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-marca-50: #eefbf4;
+  --color-marca-100: #d6f5e3;
+  --color-marca-500: #1f9d55;
+  --color-marca-600: #178044;
+  --color-marca-700: #126636;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  overscroll-behavior: none;
+}
+
+/* Los scrollbars nativos de Windows traen botones de flecha que ensucian
+   la lista y el redactor. Se dejan finos y sin botones. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

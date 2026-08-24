@@ -1,0 +1,63 @@
+{
+  "name": "whatswv",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WhatsWV - bandeja compartida de WhatsApp para el equipo de asesores",
+  "scripts": {
+    "dev": "nest start --watch",
+    "build": "nest build",
+    "start": "node dist/main.js",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:studio": "drizzle-kit studio",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test:smoke": "tsx test/smoke.ts",
+    "webhook:estado": "tsx scripts/webhook.ts estado",
+    "webhook:registrar": "tsx scripts/webhook.ts registrar",
+    "diagnostico": "tsx scripts/diagnostico.ts",
+    "simular": "tsx scripts/simular.ts",
+    "web:dev": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build",
+    "build:todo": "npm run build && npm run web:build",
+    "test:realtime": "tsx test/realtime.ts",
+    "asesores": "tsx scripts/asesores.ts",
+    "test:asignacion": "tsx test/asignacion.ts",
+    "test:operacion": "tsx test/operacion.ts",
+    "plantillas": "tsx scripts/plantillas.ts",
+    "test:bot": "tsx test/bot.ts",
+    "escritorio": "npm --prefix escritorio run dev",
+    "escritorio:empaquetar": "npm --prefix escritorio run empaquetar",
+    "escritorio:icono": "node escritorio/recursos/generar-icono.js"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/jwt": "^11.0.2",
+    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/platform-socket.io": "^11.2.1",
+    "@nestjs/websockets": "^11.2.1",
+    "drizzle-orm": "^0.44.0",
+    "pg": "^8.13.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "socket.io": "^4.8.3",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.5",
+    "@nestjs/cli": "^11.0.0",
+    "@types/express": "^5.0.0",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "drizzle-kit": "^0.31.0",
+    "socket.io-client": "^4.8.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "allowScripts": {
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true
+  }
+}
