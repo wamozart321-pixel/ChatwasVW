@@ -6,7 +6,8 @@
   "main": "principal.js",
   "scripts": {
     "dev": "electron .",
-    "empaquetar": "electron-builder --win --publish never"
+    "empaquetar": "electron-builder --win --publish never",
+    "publicar": "node publicar.js"
   },
   "devDependencies": {
     "electron": "^43.4.1",
@@ -29,7 +30,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "recursos/icono.ico"
@@ -41,8 +44,19 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "WhatsWV",
-      "installerLanguages": ["es_ES"],
+      "installerLanguages": [
+        "es_ES"
+      ],
       "language": "1034"
-    }
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://bandeja.chatwasvw.com/instalar/"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

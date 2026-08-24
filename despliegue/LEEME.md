@@ -146,3 +146,41 @@ activar con `npm run webhook:registrar`.
 **El servicio se reinicia en bucle.** `journalctl -u whatswv -n 50` lo dice
 siempre: casi siempre falta una variable en el `.env` o la base no responde.
 La app valida la configuración al arrancar y sale con el motivo escrito.
+
+## La app de Windows
+
+El instalador se sirve desde el mismo servidor:
+
+```
+https://bandeja.chatwasvw.com/instalar/WhatsWV-Setup.exe
+```
+
+Ese enlace no cambia nunca, aunque salgan versiones nuevas.
+
+### Sacar una version nueva
+
+```bash
+cd escritorio
+npm run publicar -- 0.2.0
+```
+
+Compila, sube el instalador, el `latest.yml` y el `.blockmap` a `/srv/descargas`.
+Las apps ya instaladas lo detectan solas —revisan al abrir y cada 4 horas—,
+descargan en segundo plano y **se actualizan cuando el asesor cierra la app**.
+Nunca en medio de una conversación.
+
+### Por que el actualizador no usa GitHub
+
+Con un repositorio **privado** habria que meterle un token de GitHub a la app, y
+ese token termina en la maquina de cada asesor. Con uno **publico** habria que
+publicar todo el codigo solo para poder bajar un `.exe`. El servidor del negocio
+ya sirve el instalador por HTTPS y no necesita ninguna cuenta de por medio.
+
+El codigo igual vive en GitHub, en un repositorio privado: sirve como respaldo e
+historial, no como via de distribucion. Son dos cosas distintas.
+
+### Ojo con el `.exe` firmado
+
+El instalador no esta firmado, asi que Windows muestra "Windows protegio su PC"
+en la primera instalacion. Hay que darle **Mas informacion -> Ejecutar de todas
+formas**. Las actualizaciones posteriores ya no preguntan.

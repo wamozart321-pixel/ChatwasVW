@@ -15,7 +15,8 @@
  *   - una pantalla decente cuando el servidor no responde, en vez de un error
  *     de navegador que nadie sabe interpretar
  */
-const { app, BrowserWindow, Tray, Menu, ipcMain, shell, nativeImage, Notification } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, shell, nativeImage, Notification, dialog } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const { readFileSync, writeFileSync, existsSync } = require('node:fs');
 const { join } = require('node:path');
 
@@ -122,6 +123,7 @@ function crearBandeja() {
       { label: 'Abrir WhatsWV', click: () => mostrarVentana() },
       { type: 'separator' },
       { label: 'Recargar', click: () => ventana?.reload() },
+      { label: 'Buscar actualizaciones…', click: () => buscarActualizacion(true) },
       { label: 'Cambiar servidor…', click: () => pedirServidor() },
       { type: 'separator' },
       {
@@ -280,6 +282,95 @@ ipcMain.handle('whatswv:cambiar-servidor', async () => {
   pedirServidor();
 });
 
+// --- actualizaciones ---------------------------------------------------------
+
+/**
+ * Se actualiza sola contra el mismo servidor que sirve el instalador.
+ *
+ * No usa las Releases de GitHub a propósito. Con un repositorio privado habría
+ * que meterle un token de GitHub a la app, y ese token termina en la máquina de
+ * cada asesor; con uno público habría que publicar todo el código para que se
+ * pueda bajar un .exe. El servidor del negocio ya sirve el instalador por HTTPS
+ * y no necesita ninguna cuenta de por medio.
+ */
+let revisandoAMano = false;
+
+function prepararActualizador() {
+  autoUpdater.autoDownload = true;
+
+  // Se instala al cerrar. Un asesor con una conversación abierta no puede
+  // quedarse sin la ventana porque salió una versión nueva.
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-downloaded', (info) => {
+    if (!ventana) return;
+
+    dialog
+      .showMessageBox(ventana, {
+        type: 'info',
+        title: 'Actualización lista',
+        message: `Hay una versión nueva de WhatsWV (${info.version}).`,
+        detail:
+          'Ya está descargada. Se instala sola la próxima vez que cierres la app, ' +
+          'o podés reiniciar ahora si no estás en medio de una conversación.',
+        buttons: ['Reiniciar ahora', 'Más tarde'],
+        defaultId: 1,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        if (response === 0) {
+          cerrandoDeVerdad = true;
+          autoUpdater.quitAndInstall();
+        }
+      });
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    if (!revisandoAMano) return;
+    revisandoAMano = false;
+    dialog.showMessageBox(ventana, {
+      type: 'info',
+      title: 'WhatsWV',
+      message: 'Ya tenés la última versión.',
+      detail: `Versión ${app.getVersion()}.`,
+      buttons: ['Listo'],
+    });
+  });
+
+  autoUpdater.on('error', (e) => {
+    // Sin internet o con el servidor caído esto falla, y no es motivo para
+    // molestar a nadie: la app funciona igual. Sólo se avisa si lo pidieron.
+    console.error('actualizador:', e?.message ?? e);
+    if (!revisandoAMano) return;
+    revisandoAMano = false;
+    dialog.showMessageBox(ventana, {
+      type: 'warning',
+      title: 'WhatsWV',
+      message: 'No se pudo comprobar si hay actualizaciones.',
+      detail: 'Revisá la conexión a internet e intentá de nuevo más tarde.',
+      buttons: ['Listo'],
+    });
+  });
+}
+
+function buscarActualizacion(aMano = false) {
+  // En desarrollo no hay nada empaquetado contra qué comparar.
+  if (!app.isPackaged) {
+    if (aMano && ventana) {
+      dialog.showMessageBox(ventana, {
+        type: 'info',
+        title: 'WhatsWV',
+        message: 'El actualizador sólo corre en la app instalada.',
+        buttons: ['Listo'],
+      });
+    }
+    return;
+  }
+
+  revisandoAMano = aMano;
+  autoUpdater.checkForUpdates().catch(() => undefined);
+}
+
 // --- arranque ----------------------------------------------------------------
 
 // Una sola instancia: dos ventanas contra la misma sesión duplican los avisos.
@@ -291,7 +382,14 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     crearVentana();
     crearBandeja();
+    prepararActualizador();
     await abrirBandeja();
+
+    // La primera revisión va con retraso para no competir con la carga de la
+    // bandeja, y después cada 4 horas: alcanza para que una corrección llegue
+    // el mismo día sin estar golpeando el servidor.
+    setTimeout(() => buscarActualizacion(), 30_000);
+    setInterval(() => buscarActualizacion(), 4 * 60 * 60 * 1000);
 
     // Si el servidor se cae mientras el asesor trabaja, la pantalla propia
     // explica qué pasa; el error de Chromium no le dice nada a nadie.
