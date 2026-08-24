@@ -137,6 +137,17 @@ export const sesion = {
   borrar: () => localStorage.removeItem(TOKEN),
 };
 
+export interface Usuario {
+  id: string;
+  nombre: string;
+  email: string;
+  rol: 'admin' | 'supervisor' | 'asesor';
+  activo: boolean;
+  conectado: boolean;
+  ultimaConexion: string | null;
+  creado: string;
+}
+
 export class ErrorApi extends Error {
   constructor(
     message: string,
@@ -200,6 +211,24 @@ export const api = {
     }),
 
   leida: (id: string) => pedir(`/conversaciones/${id}/leida`, { method: 'POST' }),
+
+  // --- administracion de usuarios (solo rol admin) ---
+  usuarios: () => pedir<Usuario[]>('/admin/usuarios'),
+
+  crearUsuario: (datos: { nombre: string; email: string; clave: string; rol: string }) =>
+    pedir<Usuario>('/admin/usuarios', { method: 'POST', body: JSON.stringify(datos) }),
+
+  claveDeUsuario: (id: string, clave: string) =>
+    pedir(`/admin/usuarios/${id}/clave`, { method: 'POST', body: JSON.stringify({ clave }) }),
+
+  rolDeUsuario: (id: string, rol: string) =>
+    pedir(`/admin/usuarios/${id}/rol`, { method: 'POST', body: JSON.stringify({ rol }) }),
+
+  estadoDeUsuario: (id: string, activo: boolean) =>
+    pedir<{ ok: boolean; devueltasALaCola: number }>(`/admin/usuarios/${id}/estado`, {
+      method: 'POST',
+      body: JSON.stringify({ activo }),
+    }),
 
   cambiarEstado: (id: string, estado: string) =>
     pedir(`/conversaciones/${id}/estado`, {

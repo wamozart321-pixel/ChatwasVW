@@ -20,6 +20,7 @@ import ListaChats from './componentes/ListaChats';
 import Login from './componentes/Login';
 import PanelContacto from './componentes/PanelContacto';
 import PanelEquipo from './componentes/PanelEquipo';
+import PanelUsuarios from './componentes/PanelUsuarios';
 import PanelMetricas from './componentes/PanelMetricas';
 import PreviaArchivo from './componentes/PreviaArchivo';
 import Redactor from './componentes/Redactor';
@@ -52,6 +53,7 @@ export default function App() {
   const [conectado, setConectado] = useState(false);
   const [escribiendo, setEscribiendo] = useState<string[]>([]);
   const [verEquipo, setVerEquipo] = useState(false);
+  const [verUsuarios, setVerUsuarios] = useState(false);
   const [verMetricas, setVerMetricas] = useState(false);
   const [verPlantillas, setVerPlantillas] = useState(false);
   const [archivoPendiente, setArchivoPendiente] = useState<File | null>(null);
@@ -423,6 +425,17 @@ export default function App() {
             Equipo
           </button>
 
+          {/* Sólo el admin. El backend lo vuelve a comprobar: esconder el botón
+              no es seguridad, es no ofrecer lo que no corresponde. */}
+          {asesor.rol === 'admin' && (
+            <button
+              onClick={() => setVerUsuarios(true)}
+              className="rounded-lg border border-violet-200 px-2.5 py-1 text-xs font-medium text-violet-700 transition hover:bg-violet-50"
+            >
+              Usuarios
+            </button>
+          )}
+
           <div className="text-right">
             <p className="text-xs font-medium text-slate-800">{asesor.nombre}</p>
             <p className="text-[10px] text-slate-400">{asesor.rol}</p>
@@ -432,6 +445,9 @@ export default function App() {
           </button>
 
           {verEquipo && <PanelEquipo onCerrar={() => setVerEquipo(false)} />}
+          {verUsuarios && asesor.rol === 'admin' && (
+            <PanelUsuarios yo={asesor} onCerrar={() => setVerUsuarios(false)} />
+          )}
         </div>
       </header>
 

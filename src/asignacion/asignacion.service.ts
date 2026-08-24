@@ -379,6 +379,34 @@ export class AsignacionService implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** Conversaciones sin resolver que tiene encima un asesor. */
+  /**
+   * Devuelve a la cola todo lo que tenga un asesor encima.
+   *
+   * Se usa al darlo de baja. Sin esto, sus conversaciones quedan a nombre de
+   * alguien que ya no puede entrar: el cliente escribe, nadie lo ve, y no
+   * aparece en la cola de nadie porque figura como asignada.
+   */
+  async liberarTodasDe(asesorId: string): Promise<number> {
+    const filas = await this.db
+      .update(conversations)
+      .set({
+        assignedTo: null,
+        assignedAt: null,
+        asignadaAuto: false,
+        updatedAt: sql`clock_timestamp()`,
+      })
+      .where(and(eq(conversations.assignedTo, asesorId), ne(conversations.estado, 'resuelto')))
+      .returning({ id: conversations.id });
+
+    for (const f of filas) this.realtime.conversacionActualizada(f.id);
+
+    if (filas.length) {
+      this.log.log(`${filas.length} conversaciones devueltas a la cola al dar de baja a un asesor`);
+    }
+
+    return filas.length;
+  }
+
   async cargaDe(asesorId: string): Promise<number> {
     const [fila] = await this.db
       .select({ n: sql<number>`count(*)::int` })

@@ -9,6 +9,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Pool } from 'pg';
 import { configPostgres } from '../src/db/conexion';
+import { BASE, exigirEntornoSeguro } from './entorno';
 
 try {
   process.loadEnvFile();
@@ -16,7 +17,7 @@ try {
   /* sin .env */
 }
 
-const BASE = process.env.BASE_PRUEBAS ?? `http://localhost:${process.env.PORT ?? '3000'}`;
+
 const SECRETO = process.env.META_APP_SECRET ?? '';
 const WABA = process.env.META_WABA_ID ?? '0';
 const PHONE = process.env.META_PHONE_NUMBER_ID ?? '0';
@@ -184,6 +185,8 @@ async function estaSinResponder(conversationId: string): Promise<boolean> {
 }
 
 async function main() {
+  exigirEntornoSeguro();
+
   try {
     await fetch(`${BASE}/api/auth/login`, { method: 'POST', signal: AbortSignal.timeout(3000) });
   } catch {

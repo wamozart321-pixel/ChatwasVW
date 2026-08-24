@@ -10,6 +10,7 @@
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { io, type Socket } from 'socket.io-client';
+import { BASE, exigirEntornoSeguro } from './entorno';
 
 try {
   process.loadEnvFile();
@@ -17,7 +18,7 @@ try {
   /* sin .env */
 }
 
-const BASE = process.env.BASE_PRUEBAS ?? `http://localhost:${process.env.PORT ?? '3000'}`;
+
 let TOKEN = '';
 const SECRETO = process.env.META_APP_SECRET ?? '';
 const WABA = process.env.META_WABA_ID ?? '0';
@@ -105,6 +106,8 @@ const api = (ruta: string): Promise<any[]> =>
   );
 
 async function main() {
+  exigirEntornoSeguro();
+
   try {
     TOKEN = await login('andres@repuestos.com');
   } catch (e) {
