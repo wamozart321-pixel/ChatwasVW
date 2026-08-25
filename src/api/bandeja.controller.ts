@@ -12,6 +12,7 @@ import {
 import { AsignacionService } from '../asignacion/asignacion.service';
 import { env } from '../config/env';
 import { AsesorActual } from '../auth/asesor.decorator';
+import { GeocodificarService } from '../messages/geocodificar.service';
 import { coordenadasDe, esEnlaceCorto, resolverEnlaceCorto } from '../messages/ubicacion';
 import { AuthGuard } from '../auth/auth.guard';
 import type { Asesor } from '../auth/auth.service';
@@ -25,6 +26,7 @@ export class BandejaController {
     private readonly bandeja: BandejaService,
     private readonly saliente: OutboundService,
     private readonly asignacion: AsignacionService,
+    private readonly geo: GeocodificarService,
   ) {}
 
   @Get('conversaciones')
@@ -147,6 +149,50 @@ export class BandejaController {
             }
           : null,
     };
+  }
+
+  /** Busca una direccion para el mapa del redactor. */
+  @Get('direcciones')
+  direcciones(@Query('q') q?: string) {
+    return this.geo.buscar(q ?? '');
+  }
+
+  /**
+   * De coordenadas a direccion.
+   *
+   * Es lo que confirma que el punto marcado en el mapa es el correcto: mover
+   * un pin sin ver que calle es lleva a mandar la cuadra equivocada.
+   */
+  @Get('direccion-de')
+  async direccionDe(@Query('lat') lat?: string, @Query('lon') lon?: string) {
+    const latitud = Number(lat);
+    const longitud = Number(lon);
+
+    if (!Number.isFinite(latitud) || !Number.isFinite(longitud)) {
+      throw new BadRequestException('coordenadas invalidas');
+    }
+
+    return { direccion: await this.geo.direccionDe(latitud, longitud) };
+  }
+
+  /**
+   * Resuelve un enlace de Maps a coordenadas, sin mandar nada.
+   *
+   * El mapa del redactor lo usa para mover el pin a donde apunta el enlace: el
+   * asesor ve el punto antes de enviarlo, en vez de mandar a ciegas.
+   */
+  @Post('resolver-ubicacion')
+  async resolverUbicacion(@Body() body: { texto?: string }) {
+    const texto = (body?.texto ?? '').trim();
+    const punto = esEnlaceCorto(texto)
+      ? await resolverEnlaceCorto(texto)
+      : coordenadasDe(texto);
+
+    if (!punto) {
+      throw new BadRequestException('No se reconocio ninguna ubicacion en ese texto.');
+    }
+
+    return punto;
   }
 
   /**

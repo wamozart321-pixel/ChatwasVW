@@ -7,11 +7,12 @@ import { BandejaController } from './bandeja.controller';
 import { MediaController } from './media.controller';
 import { OperacionController } from './operacion.controller';
 import { PlantillasController } from './plantillas.controller';
+import { GeocodificarService } from '../messages/geocodificar.service';
 import { BandejaService } from './bandeja.service';
 
 @Module({
   imports: [AsignacionModule, OperacionModule, PlantillasModule, WhatsappModule],
   controllers: [BandejaController, MediaController, OperacionController, PlantillasController],
-  providers: [BandejaService],
+  providers: [BandejaService, GeocodificarService],
 })
 export class ApiModule {}

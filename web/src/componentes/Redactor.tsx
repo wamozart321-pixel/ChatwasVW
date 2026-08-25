@@ -124,28 +124,28 @@ export default function Redactor({
           📎
         </button>
 
-        <div className="relative mb-0.5">
-          <button
-            onClick={() => setVerUbicacion((v) => !v)}
-            disabled={enviando}
-            title="Enviar ubicación"
-            className="rounded-xl border border-slate-200 px-3 py-2.5 text-slate-500 transition hover:bg-slate-50 disabled:opacity-40"
-          >
-            📍
-          </button>
+        <button
+          onClick={() => setVerUbicacion(true)}
+          disabled={enviando}
+          title="Enviar ubicación"
+          className="mb-0.5 rounded-xl border border-slate-200 px-3 py-2.5 text-slate-500 transition hover:bg-slate-50 disabled:opacity-40"
+        >
+          📍
+        </button>
 
-          {verUbicacion && (
-            <EnviarUbicacion
-              negocio={ubicacionNegocio}
-              enviando={enviando}
-              onCerrar={() => setVerUbicacion(false)}
-              onEnviar={(datos) => {
-                setVerUbicacion(false);
-                onUbicacion(datos);
-              }}
-            />
-          )}
-        </div>
+        {/* El mapa va en un modal a pantalla completa: en un globito de 300 px
+            no se puede elegir un punto de una ciudad. */}
+        {verUbicacion && (
+          <EnviarUbicacion
+            negocio={ubicacionNegocio}
+            enviando={enviando}
+            onCerrar={() => setVerUbicacion(false)}
+            onEnviar={(datos) => {
+              setVerUbicacion(false);
+              onUbicacion(datos);
+            }}
+          />
+        )}
         <textarea
           ref={areaRef}
           rows={1}

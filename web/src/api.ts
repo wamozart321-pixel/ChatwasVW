@@ -121,6 +121,12 @@ export interface Mensaje {
   eliminadoPor: string | null;
 }
 
+export interface Lugar {
+  nombre: string;
+  latitud: number;
+  longitud: number;
+}
+
 export interface UbicacionNegocio {
   latitud: number;
   longitud: number;
@@ -205,6 +211,19 @@ export const api = {
    * pego el asesor y lo resuelve el servidor: los enlaces cortos de Maps hay
    * que seguirlos, y Google no manda cabeceras CORS para hacerlo desde aca.
    */
+  buscarDireccion: (q: string) =>
+    pedir<Lugar[]>(`/direcciones?q=${encodeURIComponent(q)}`),
+
+  direccionDe: (lat: number, lon: number) =>
+    pedir<{ direccion: string | null }>(`/direccion-de?lat=${lat}&lon=${lon}`),
+
+  /** Resuelve un enlace de Maps a coordenadas, sin enviar nada todavia. */
+  resolverUbicacion: (texto: string) =>
+    pedir<{ latitud: number; longitud: number }>('/resolver-ubicacion', {
+      method: 'POST',
+      body: JSON.stringify({ texto }),
+    }),
+
   enviarUbicacion: (
     id: string,
     datos: { latitud?: number; longitud?: number; texto?: string; nombre?: string; direccion?: string },
