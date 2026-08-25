@@ -66,6 +66,15 @@ const esquema = z.object({
   /** Zona horaria del negocio. El servidor puede estar en cualquier otra. */
   ZONA_HORARIA: z.string().default('America/Bogota'),
 
+  /**
+   * Minutos que el bot espera una respuesta antes de pasarle la conversacion a
+   * un asesor con lo que haya juntado. Sin esto, un cliente que se distrae a
+   * mitad del interrogatorio queda en un limbo: no esta asignado a nadie y
+   * tampoco aparece en la cola, porque el bot figura como que la esta atendiendo.
+   * 0 desactiva la revision.
+   */
+  BOT_ESPERA_MINUTOS: z.coerce.number().int().min(0).max(120).default(5),
+
   /** Formato 'HH:MM-HH:MM', o 'cerrado'. */
   HORARIO_LUNES_VIERNES: z.string().default('08:30-17:30'),
   HORARIO_SABADO: z.string().default('08:30-14:00'),

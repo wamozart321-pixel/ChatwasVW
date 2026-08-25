@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
 import { AsignacionService } from '../asignacion/asignacion.service';
 import { env } from '../config/env';
@@ -21,6 +21,9 @@ import {
 } from './flujo';
 import { estaAbierto, parsearFranja, proximaApertura, type Horario } from './horario';
 
+/** Cada cuanto se revisa si hay alguien esperando a mitad del flujo. */
+const INTERVALO_REVISION_MS = 60_000;
+
 /** Lo que el motor le devuelve al worker. */
 export interface ResultadoBot {
   /** true si el bot contestó: la conversación no debe rutearse todavía. */
@@ -28,7 +31,7 @@ export interface ResultadoBot {
 }
 
 @Injectable()
-export class BotService {
+export class BotService implements OnModuleInit, OnApplicationShutdown {
   private readonly log = new Logger(BotService.name);
   private readonly horario: Horario;
 
@@ -52,6 +55,72 @@ export class BotService {
         parsearFranja(env.HORARIO_SABADO),
       ],
     };
+  }
+
+  private temporizador: NodeJS.Timeout | null = null;
+
+  onModuleInit() {
+    if (!env.BOT_ACTIVO || env.BOT_ESPERA_MINUTOS === 0) return;
+
+    this.temporizador = setInterval(() => void this.revisarAbandonadas(), INTERVALO_REVISION_MS);
+    this.log.log(
+      `revision del bot activa: pasa a un asesor lo que quede sin respuesta ${env.BOT_ESPERA_MINUTOS} min`,
+    );
+  }
+
+  onApplicationShutdown() {
+    if (this.temporizador) clearInterval(this.temporizador);
+  }
+
+  /**
+   * Saca del limbo las conversaciones que quedaron a mitad del flujo.
+   *
+   * Mientras el bot pregunta, la conversacion no esta asignada a nadie NI en la
+   * cola: para el sistema la esta atendiendo el bot. Si el cliente se distrae,
+   * o el webhook de su respuesta llega tarde —Meta a veces demora minutos—,
+   * nadie se entera de que hay alguien esperando.
+   *
+   * Cubre los dos casos:
+   *   - un asesor la tomo a mano: se cierra el flujo y se deja la nota, para
+   *     que no arranque de cero leyendo todo el hilo
+   *   - nadie la tomo y no hay respuesta: se cierra y se reparte
+   */
+  async revisarAbandonadas(): Promise<number> {
+    try {
+      const { rows } = await this.db.execute<{
+        id: string;
+        contact_id: string;
+        assigned_to: string | null;
+      }>(sql`
+        SELECT c.id, c.contact_id, c.assigned_to
+        FROM conversations c
+        WHERE c.bot_paso IS NOT NULL
+          AND c.estado <> 'resuelto'
+          AND (
+            c.assigned_to IS NOT NULL
+            OR c.updated_at < clock_timestamp() - make_interval(mins => ${env.BOT_ESPERA_MINUTOS})
+          )
+        LIMIT 50
+      `);
+
+      for (const fila of rows) {
+        const tomada = fila.assigned_to !== null;
+
+        await this.cerrarFlujo(
+          fila.id,
+          tomada ? 'un asesor tomó la conversación' : 'el cliente no siguió respondiendo',
+        );
+
+        // Solo hay que repartir la que no tiene dueño; la otra ya lo tiene.
+        if (!tomada) await this.asignacion.rutearEntrante(fila.contact_id, fila.id);
+      }
+
+      return rows.length;
+    } catch (e) {
+      // Nunca tumba el intervalo: en el peor caso se reintenta en un minuto.
+      this.log.error(`no se pudo revisar el bot: ${(e as Error).message}`);
+      return 0;
+    }
   }
 
   abierto(ahora = new Date()): boolean {
@@ -198,6 +267,43 @@ export class BotService {
       default:
         return { atendio: false };
     }
+  }
+
+  /**
+   * Cierra el flujo del bot dejando la nota, sin mandarle nada al cliente.
+   *
+   * Se usa cuando la conversacion sale del bot por otra via: un asesor la tomo
+   * a mitad del interrogatorio, o se acabo la paciencia de esperar respuesta.
+   * Sin esto, lo que el bot ya habia averiguado —motivo, vehiculo— se quedaba
+   * en una columna que nadie mira, y el asesor arrancaba de cero.
+   */
+  async cerrarFlujo(conversationId: string, motivoDelCierre: string): Promise<boolean> {
+    const [conv] = await this.db
+      .select({ botPaso: conversations.botPaso, botDatos: conversations.botDatos })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .limit(1);
+
+    if (!conv?.botPaso) return false;
+
+    const datos = { ...(conv.botDatos ?? {}) } as Record<string, string>;
+    const juntoAlgo = ['motivo', 'vehiculo', 'repuesto'].some((k) => datos[k]);
+
+    // No se usa el texto por defecto de resumenParaAsesor: ese dice "el cliente
+    // pidio hablar con un asesor", que aca seria mentira. El cliente no pidio
+    // nada, se quedo callado o lo tomaron antes de que contestara.
+    const cuerpo = juntoAlgo
+      ? `${resumenParaAsesor(datos)}
+(${motivoDelCierre})`
+      : `El bot no alcanzó a averiguar qué necesita: ${motivoDelCierre}.
+Hay que leer el hilo.`;
+
+    await this.db.insert(notes).values({ conversationId, userId: null, cuerpo });
+
+    await this.guardar(conversationId, null, datos, 0);
+    this.realtime.conversacionActualizada(conversationId);
+    this.log.log(`flujo del bot cerrado en ${conversationId}: ${motivoDelCierre}`);
+    return true;
   }
 
   /** Cierra el flujo, deja la nota con lo recolectado y libera para el ruteo. */

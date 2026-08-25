@@ -125,6 +125,25 @@ async function esperarPaso(
   );
 }
 
+/** Paso y dueno actuales de una conversacion. */
+async function estadoDelBot(conversationId: string) {
+  const { rows } = await pool.query<{ bot_paso: string | null; assigned_to: string | null }>(
+    `SELECT bot_paso, assigned_to FROM conversations WHERE id = $1`,
+    [conversationId],
+  );
+  return rows[0];
+}
+
+/** Repite `fn` hasta que devuelva true o se acabe el tiempo. */
+async function esperarHasta(fn: () => Promise<boolean>, ms: number): Promise<boolean> {
+  const hasta = Date.now() + ms;
+  while (Date.now() < hasta) {
+    if (await fn()) return true;
+    await dormir(2000);
+  }
+  return false;
+}
+
 async function main() {
   exigirEntornoSeguro();
 
@@ -295,7 +314,72 @@ async function main() {
     assert.equal(sinResponder[0].n, 1, 'el bot la sacó de «sin responder»');
   });
 
-  await pool.end().catch(() => undefined);
+  console.log('\nnadie se queda en el limbo');
+
+  await prueba('lo que queda a mitad del flujo termina con un asesor', async () => {
+    // El caso real: el cliente contesta dos preguntas y se distrae, o el
+    // webhook de su respuesta llega tarde. Mientras el bot "atiende", la
+    // conversacion no esta asignada a nadie NI aparece en la cola, asi que
+    // nadie se entera de que hay alguien esperando.
+    const tel = telAleatorio();
+
+    await entrante(tel, 'Buenas tardes');
+    const conv = (await esperarPaso(tel, 'menu')).id;
+
+    await entrante(tel, '1'); // cotizar
+    await esperarPaso(tel, 'vehiculo');
+    await entrante(tel, 'Jetta 2009');
+    await esperarPaso(tel, 'repuesto');
+
+    const antes = await estadoDelBot(conv);
+    assert.ok(antes.bot_paso, 'la prueba no sirve: el bot ya habia soltado la conversacion');
+    assert.equal(antes.assigned_to, null, 'se asigno sola, no mide el limbo');
+
+    // Se envejece a mano en vez de esperar los minutos de verdad.
+    await pool.query(
+      `UPDATE conversations SET updated_at = clock_timestamp() - interval '2 hours' WHERE id = $1`,
+      [conv],
+    );
+
+    const salio = await esperarHasta(async () => !(await estadoDelBot(conv)).bot_paso, 90_000);
+    assert.ok(salio, 'la conversacion quedo trabada a mitad del flujo');
+
+    // Y con la nota de lo que alcanzo a averiguar: el asesor no puede tener
+    // que leer todo el hilo para enterarse de que ya le preguntaron el auto.
+    const { rows } = await pool.query(
+      `SELECT cuerpo FROM notes WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [conv],
+    );
+    assert.ok(rows[0], 'no dejo ninguna nota');
+    assert.match(rows[0].cuerpo, /Jetta 2009/, 'la nota no trae lo que el bot averiguo');
+  });
+
+  await prueba('si un asesor la toma, el bot cierra y deja la nota', async () => {
+    const tel = telAleatorio();
+
+    await entrante(tel, 'Buenas');
+    const conv = (await esperarPaso(tel, 'menu')).id;
+    await entrante(tel, '1');
+    await esperarPaso(tel, 'vehiculo');
+
+    assert.ok((await estadoDelBot(conv)).bot_paso, 'el bot no quedo a mitad del flujo');
+
+    // La toma un asesor mientras el bot todavia preguntaba.
+    await pool.query(
+      `UPDATE conversations SET assigned_to = (SELECT id FROM users WHERE email = 'andres@repuestos.com'),
+              assigned_at = clock_timestamp() WHERE id = $1`,
+      [conv],
+    );
+
+    const cerro = await esperarHasta(async () => !(await estadoDelBot(conv)).bot_paso, 90_000);
+    assert.ok(cerro, 'el flujo del bot quedo abierto con la conversacion ya tomada');
+
+    const { rows } = await pool.query(
+      `SELECT cuerpo FROM notes WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [conv],
+    );
+    assert.match(rows[0].cuerpo, /asesor tomó/, 'la nota no dice por que se cerro');
+  });
 
   console.log(fallos === 0 ? '\nTODO OK\n' : `\n${fallos} PRUEBA(S) FALLARON\n`);
   process.exit(fallos === 0 ? 0 : 1);
