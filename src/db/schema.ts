@@ -87,6 +87,14 @@ export const conversations = pgTable(
     botDatos: jsonb('bot_datos').$type<Record<string, string>>().notNull().default({}),
     /** Cuantas veces seguidas no entendio. Al tope, pasa a un humano. */
     botIntentos: integer('bot_intentos').notNull().default(0),
+    /**
+     * Cuando el bot dio por terminado su trabajo en esta conversacion.
+     *
+     * Sin esta marca, un cliente que ya paso por el menu y quedo esperando en
+     * la cola recibia el saludo y el menu OTRA VEZ cada vez que escribia. Es
+     * la clase de cosa por la que la gente odia los bots.
+     */
+    botEntregadaEn: timestamp('bot_entregada_en', { withTimezone: true }),
     /** Ultimo mensaje ENTRANTE. Es lo que abre la ventana de servicio. */
     lastInboundAt: timestamp('last_inbound_at', { withTimezone: true }),
     /** lastInboundAt + 24h. Pasado esto solo se puede enviar plantilla aprobada. */

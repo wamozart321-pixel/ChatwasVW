@@ -151,6 +151,7 @@ export class BotService implements OnModuleInit, OnApplicationShutdown {
         botPaso: conversations.botPaso,
         botDatos: conversations.botDatos,
         botIntentos: conversations.botIntentos,
+        botEntregadaEn: conversations.botEntregadaEn,
       })
       .from(conversations)
       .where(eq(conversations.id, params.conversationId))
@@ -171,6 +172,16 @@ export class BotService implements OnModuleInit, OnApplicationShutdown {
     // --- el cliente pide una persona: se corta el flujo donde esté ---
     if (paso && pideHumano(params.texto)) {
       await this.entregarAHumano(params, datos, abierto, vuelve);
+      return { atendio: false };
+    }
+
+    // --- ya entregada: el bot no vuelve a empezar ---
+    // El cliente termino el menu y esta esperando en la cola. Si vuelve a
+    // escribir —"hola?", "sigue ahi?"— lo ultimo que hay que hacer es
+    // saludarlo de nuevo y volver a preguntarle todo. Se queda callado: el
+    // mensaje sube la conversacion en la bandeja y la atiende una persona.
+    if (!paso && conv.botEntregadaEn) {
+      this.log.debug('conversacion ya entregada: el bot no reinicia el flujo');
       return { atendio: false };
     }
 
@@ -300,7 +311,7 @@ Hay que leer el hilo.`;
 
     await this.db.insert(notes).values({ conversationId, userId: null, cuerpo });
 
-    await this.guardar(conversationId, null, datos, 0);
+    await this.guardar(conversationId, null, datos, 0, true);
     this.realtime.conversacionActualizada(conversationId);
     this.log.log(`flujo del bot cerrado en ${conversationId}: ${motivoDelCierre}`);
     return true;
@@ -322,7 +333,7 @@ Hay que leer el hilo.`;
       cuerpo: resumenParaAsesor(datos),
     });
 
-    await this.guardar(params.conversationId, null, datos, 0);
+    await this.guardar(params.conversationId, null, datos, 0, true);
     this.realtime.conversacionActualizada(params.conversationId);
     this.log.log(`bot entregó ${params.conversationId} a un humano`);
   }
@@ -373,10 +384,17 @@ Hay que leer el hilo.`;
     paso: Paso | null,
     datos: Record<string, string>,
     intentos: number,
+    entregada = false,
   ) {
     return this.db
       .update(conversations)
-      .set({ botPaso: paso, botDatos: datos, botIntentos: intentos, updatedAt: sql`clock_timestamp()` })
+      .set({
+        botPaso: paso,
+        botDatos: datos,
+        botIntentos: intentos,
+        ...(entregada ? { botEntregadaEn: sql`clock_timestamp()` } : {}),
+        updatedAt: sql`clock_timestamp()`,
+      })
       .where(eq(conversations.id, conversationId));
   }
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "conversations" ADD COLUMN "bot_entregada_en" timestamp with time zone;
