@@ -111,12 +111,21 @@ export interface Mensaje {
   mediaTamano: number | null;
   tieneMedia: boolean;
   status: 'queued' | 'sent' | 'delivered' | 'read' | 'failed';
+  ubicacionLat: number | null;
+  ubicacionLon: number | null;
   errorMessage: string | null;
   enviadoPorId: string | null;
   esBot: boolean;
   cuando: string;
   eliminado: boolean;
   eliminadoPor: string | null;
+}
+
+export interface UbicacionNegocio {
+  latitud: number;
+  longitud: number;
+  nombre: string;
+  direccion: string | null;
 }
 
 export interface MiembroEquipo {
@@ -188,7 +197,22 @@ export const api = {
 
   yo: () => pedir<Asesor>('/auth/yo'),
 
-  config: () => pedir<{ maxArchivoMB: number }>('/config'),
+  config: () =>
+    pedir<{ maxArchivoMB: number; ubicacionNegocio: UbicacionNegocio | null }>('/config'),
+
+  /**
+   * Manda una ubicacion. O se le pasan las coordenadas, o el texto crudo que
+   * pego el asesor y lo resuelve el servidor: los enlaces cortos de Maps hay
+   * que seguirlos, y Google no manda cabeceras CORS para hacerlo desde aca.
+   */
+  enviarUbicacion: (
+    id: string,
+    datos: { latitud?: number; longitud?: number; texto?: string; nombre?: string; direccion?: string },
+  ) =>
+    pedir<Mensaje>(`/conversaciones/${id}/ubicacion`, {
+      method: 'POST',
+      body: JSON.stringify(datos),
+    }),
 
   asesores: () => pedir<Asesor[]>('/auth/asesores'),
 

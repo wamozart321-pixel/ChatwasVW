@@ -25,6 +25,7 @@ import {
 } from '../src/bot/horario';
 import { extraerContenido, fechaDeMeta } from '../src/messages/contenido';
 import { firmaValida } from '../src/whatsapp/signature';
+import { coordenadasDe, esEnlaceCorto } from '../src/messages/ubicacion';
 
 let fallos = 0;
 
@@ -373,6 +374,44 @@ async function main() {
     assert.throws(() => parsearFranja('8:30 a 17:30'));
     assert.throws(() => parsearFranja('17:30-08:30'), /después/);
     assert.equal(parsearFranja('cerrado'), null);
+  });
+
+  console.log('\nubicaciones');
+
+  await prueba('saca las coordenadas de lo que pega un asesor', () => {
+    // Nadie escribe coordenadas: copia el enlace desde Maps. Estos son los
+    // formatos que salen del telefono y del navegador.
+    const esperado = { latitud: 4.6482, longitud: -74.0776 };
+
+    for (const entrada of [
+      'https://www.google.com/maps/@4.6482,-74.0776,17z',
+      'https://maps.google.com/?q=4.6482,-74.0776',
+      'https://www.google.com/maps/place/Repuestos/@4.6482,-74.0776,17z/data=!3m1!4b1',
+      'https://www.google.com/maps/place/x/data=!4m6!3m5!1s0x1!8m2!3d4.6482!4d-74.0776',
+      'https://www.google.com/maps/dir/?api=1&destination=4.6482,-74.0776',
+      '4.6482, -74.0776',
+      '4.6482,-74.0776',
+    ]) {
+      assert.deepEqual(coordenadasDe(entrada), esperado, `no lo reconocio: ${entrada}`);
+    }
+  });
+
+  await prueba('no inventa una ubicacion cuando no hay ninguna', () => {
+    // Mandar una coordenada equivocada es peor que no mandar nada: el cliente
+    // maneja hasta el otro lado de la ciudad.
+    for (const entrada of ['hola como estas', 'https://www.google.com/maps', '', '200, -74']) {
+      assert.equal(coordenadasDe(entrada), null, `invento algo con: "${entrada}"`);
+    }
+
+    // 0,0 es el Golfo de Guinea: casi siempre significa que el parseo fallo.
+    assert.equal(coordenadasDe('0,0'), null);
+  });
+
+  await prueba('reconoce los enlaces cortos, que hay que resolver aparte', () => {
+    assert.equal(esEnlaceCorto('https://maps.app.goo.gl/abc123'), true);
+    assert.equal(esEnlaceCorto('https://goo.gl/maps/abc123'), true);
+    assert.equal(esEnlaceCorto('https://www.google.com/maps/@4.6,-74.0,17z'), false);
+    assert.equal(esEnlaceCorto('4.6482, -74.0776'), false);
   });
 
   console.log('\nflujo del bot');

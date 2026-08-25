@@ -74,6 +74,15 @@ const esquema = z.object({
   /** Nombre con el que el bot se presenta al cliente. */
   NEGOCIO_NOMBRE: z.string().default('Repuestos Volkswagen Jhon Pardo'),
 
+  /**
+   * Donde queda el local. Con esto, mandarle la direccion a un cliente es un
+   * clic en vez de buscarla en Maps y copiar el enlace cada vez.
+   * Vacio = el boton de "nuestra ubicacion" no aparece.
+   */
+  NEGOCIO_LAT: z.coerce.number().min(-90).max(90).optional(),
+  NEGOCIO_LON: z.coerce.number().min(-180).max(180).optional(),
+  NEGOCIO_DIRECCION: z.string().optional(),
+
   /** Carpeta donde se guardan las fotos, audios y documentos de los clientes. */
   ALMACEN_DIR: z.string().default('./almacen'),
 

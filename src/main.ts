@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { AppModule } from './app.module';
 import { env } from './config/env';
+import { GraphErrorFilter } from './whatsapp/graph-error.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -24,6 +25,11 @@ async function bootstrap() {
   if (existsSync(publico)) {
     app.useStaticAssets(publico);
   }
+
+  // Los rechazos de Meta salen con el motivo real y no como "Internal server
+  // error": la causa casi nunca esta de este lado, y el asesor necesita saber
+  // si el problema es el numero, la ventana de 24 h o la plantilla.
+  app.useGlobalFilters(new GraphErrorFilter());
 
   app.enableShutdownHooks();
 

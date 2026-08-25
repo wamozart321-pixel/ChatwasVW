@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   bigserial,
   boolean,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -152,6 +153,15 @@ export const messages = pgTable(
     eliminadoEn: timestamp('eliminado_en', { withTimezone: true }),
     eliminadoPor: uuid('eliminado_por').references(() => users.id, { onDelete: 'set null' }),
     /** Timestamp de Meta, NO now(). Ordenar por este campo. */
+    /**
+     * Ubicacion, cuando el mensaje es de tipo 'location'.
+     *
+     * En columnas propias y no dentro de `raw`: el hilo necesita las
+     * coordenadas para armar el enlace al mapa, y sacarlas de un jsonb en cada
+     * fila del hilo es trabajo de mas para algo que se lee siempre.
+     */
+    ubicacionLat: doublePrecision('ubicacion_lat'),
+    ubicacionLon: doublePrecision('ubicacion_lon'),
     waTimestamp: timestamp('wa_timestamp', { withTimezone: true }).notNull(),
     raw: jsonb('raw').$type<Record<string, unknown>>(),
     createdAt: creado,

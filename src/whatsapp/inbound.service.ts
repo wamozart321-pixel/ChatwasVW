@@ -85,6 +85,8 @@ export class InboundService {
       caption: contenido.caption,
       mediaId: contenido.mediaId,
       mediaMime: contenido.mediaMime,
+      ubicacionLat: contenido.ubicacionLat,
+      ubicacionLon: contenido.ubicacionLon,
       waTimestamp: cuando,
       raw: m as unknown as Record<string, unknown>,
     });

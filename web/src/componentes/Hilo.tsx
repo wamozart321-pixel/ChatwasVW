@@ -170,14 +170,45 @@ export default function Hilo({
                   'interactive' el texto ya es el botón que el cliente tocó, así
                   que un cartel que dice INTERACTIVE es ruido.
                 */}
-                {m.tipo !== 'text' && m.tipo !== 'interactive' && !m.mediaMime && (
-                  <div
-                    className={`mb-1 text-[11px] font-medium uppercase tracking-wide ${
-                      mio ? 'text-white/70' : 'text-slate-400'
+                {m.tipo !== 'text' &&
+                  m.tipo !== 'interactive' &&
+                  m.tipo !== 'location' &&
+                  !m.mediaMime && (
+                    <div
+                      className={`mb-1 text-[11px] font-medium uppercase tracking-wide ${
+                        mio ? 'text-white/70' : 'text-slate-400'
+                      }`}
+                    >
+                      {m.tipo}
+                    </div>
+                  )}
+
+                {/*
+                  Ubicación: se pinta como una tarjeta con enlace al mapa. Un par
+                  de coordenadas sueltas no le sirve a nadie; lo que el asesor
+                  necesita es poder abrirlas y ver dónde queda.
+                */}
+                {m.tipo === 'location' && m.ubicacionLat != null && m.ubicacionLon != null && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${m.ubicacionLat},${m.ubicacionLon}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`mb-1 flex items-center gap-2 rounded-lg px-2 py-1.5 transition ${
+                      mio ? 'bg-white/15 hover:bg-white/25' : 'bg-slate-100 hover:bg-slate-200'
                     }`}
                   >
-                    {m.tipo}
-                  </div>
+                    <span className="text-lg leading-none">📍</span>
+                    <span className="min-w-0">
+                      <span className="block text-xs font-medium underline underline-offset-2">
+                        Ver en el mapa
+                      </span>
+                      <span
+                        className={`block text-[10px] ${mio ? 'text-white/70' : 'text-slate-500'}`}
+                      >
+                        {m.ubicacionLat.toFixed(5)}, {m.ubicacionLon.toFixed(5)}
+                      </span>
+                    </span>
+                  </a>
                 )}
 
                 {/* Con archivo, el cuerpo es el epigrafe: si no hay, no se pinta nada. */}

@@ -78,6 +78,35 @@ export class GraphService {
   }
 
   /**
+   * Envia una ubicacion. Le llega al cliente como un mapa que puede tocar para
+   * abrir en su aplicacion de mapas y trazar la ruta.
+   */
+  async enviarUbicacion(
+    a: string,
+    ubicacion: { latitud: number; longitud: number; nombre?: string; direccion?: string },
+  ): Promise<string> {
+    const r = await this.pedir<RespuestaEnvio>(`/${env.META_PHONE_NUMBER_ID}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: a,
+        type: 'location',
+        location: {
+          latitude: ubicacion.latitud,
+          longitude: ubicacion.longitud,
+          ...(ubicacion.nombre ? { name: ubicacion.nombre } : {}),
+          ...(ubicacion.direccion ? { address: ubicacion.direccion } : {}),
+        },
+      }),
+    });
+
+    const id = r.messages?.[0]?.id;
+    if (!id) throw new GraphError('Meta acepto el envio pero no devolvio message id', 502);
+    return id;
+  }
+
+  /**
    * Envia una plantilla aprobada. Es la unica via fuera de la ventana de 24h.
    * (El flujo completo de plantillas llega en el paso 4; esto es el transporte.)
    */

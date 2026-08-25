@@ -12,6 +12,8 @@ export interface EntranteAGuardar {
   caption: string | null;
   mediaId: string | null;
   mediaMime: string | null;
+  ubicacionLat: number | null;
+  ubicacionLon: number | null;
   waTimestamp: Date;
   raw: Record<string, unknown>;
 }
@@ -38,6 +40,8 @@ export class MessagesService {
         caption: datos.caption,
         mediaId: datos.mediaId,
         mediaMime: datos.mediaMime,
+        ubicacionLat: datos.ubicacionLat,
+        ubicacionLon: datos.ubicacionLon,
         status: 'delivered',
         statusRank: RANGO_ESTADO.delivered,
         waTimestamp: datos.waTimestamp,
@@ -60,6 +64,8 @@ export class MessagesService {
     mediaMime?: string | null;
     mediaNombre?: string | null;
     mediaTamano?: number | null;
+    ubicacionLat?: number | null;
+    ubicacionLon?: number | null;
   }) {
     const [fila] = await this.db
       .insert(messages)
@@ -82,6 +88,8 @@ export class MessagesService {
         mediaMime: datos.mediaMime ?? null,
         mediaNombre: datos.mediaNombre ?? null,
         mediaTamano: datos.mediaTamano ?? null,
+        ubicacionLat: datos.ubicacionLat ?? null,
+        ubicacionLon: datos.ubicacionLon ?? null,
       })
       .returning();
 

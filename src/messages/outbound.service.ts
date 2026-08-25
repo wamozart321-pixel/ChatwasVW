@@ -62,6 +62,66 @@ export class OutboundService {
   }
 
   /**
+   * Manda una ubicacion. Al cliente le llega un mapa que puede tocar para
+   * abrirlo en su aplicacion y trazar la ruta hasta el local.
+   */
+  async enviarUbicacion(params: {
+    a: string;
+    latitud: number;
+    longitud: number;
+    nombre?: string;
+    direccion?: string;
+    userId?: string | null;
+  }) {
+    const waId = normalizarTelefono(params.a);
+    if (waId.length < 8) throw new BadRequestException('numero invalido');
+
+    if (
+      !Number.isFinite(params.latitud) ||
+      !Number.isFinite(params.longitud) ||
+      Math.abs(params.latitud) > 90 ||
+      Math.abs(params.longitud) > 180
+    ) {
+      throw new BadRequestException('coordenadas invalidas');
+    }
+
+    const contacto = await this.conversaciones.asegurarContacto(waId);
+    const conversacion = await this.conversaciones.vivaDelContacto(contacto.id);
+
+    if (!conversacion || !this.conversaciones.ventanaAbierta(conversacion.windowExpiresAt)) {
+      throw new UnprocessableEntityException({
+        error: 'ventana_cerrada',
+        mensaje:
+          'Pasaron mas de 24h desde el ultimo mensaje del cliente. Solo se puede enviar una plantilla aprobada.',
+        windowExpiresAt: conversacion?.windowExpiresAt ?? null,
+      });
+    }
+
+    // El cuerpo guarda la etiqueta legible: es lo que se busca desde la bandeja
+    // y lo que se ve en la vista previa de la lista, donde un par de numeros
+    // no le dice nada a nadie.
+    const etiqueta =
+      [params.nombre, params.direccion].filter(Boolean).join(' - ') ||
+      `${params.latitud}, ${params.longitud}`;
+
+    return this.despachar({
+      conversationId: conversacion.id,
+      tipo: 'location',
+      cuerpo: etiqueta,
+      userId: params.userId ?? null,
+      ubicacionLat: params.latitud,
+      ubicacionLon: params.longitud,
+      enviar: () =>
+        this.graph.enviarUbicacion(waId, {
+          latitud: params.latitud,
+          longitud: params.longitud,
+          nombre: params.nombre,
+          direccion: params.direccion,
+        }),
+    });
+  }
+
+  /**
    * Envía un archivo ya subido a Meta. Como el texto libre, sólo dentro de la
    * ventana de 24 h: fuera de ella WhatsApp únicamente acepta plantillas.
    */
@@ -142,6 +202,8 @@ export class OutboundService {
     userId: string | null;
     raw?: Record<string, unknown>;
     media?: { url: string; mime: string; nombre: string; tamano: number };
+    ubicacionLat?: number;
+    ubicacionLon?: number;
     enviar: () => Promise<string>;
   }) {
     const fila = await this.mensajes.crearSalientePendiente({
@@ -154,6 +216,8 @@ export class OutboundService {
       mediaMime: params.media?.mime,
       mediaNombre: params.media?.nombre,
       mediaTamano: params.media?.tamano,
+      ubicacionLat: params.ubicacionLat,
+      ubicacionLon: params.ubicacionLon,
     });
 
     try {

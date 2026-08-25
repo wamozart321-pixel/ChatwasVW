@@ -6,6 +6,8 @@ export interface ContenidoNormalizado {
   caption: string | null;
   mediaId: string | null;
   mediaMime: string | null;
+  ubicacionLat: number | null;
+  ubicacionLon: number | null;
 }
 
 /** Aplana los ~14 tipos de mensaje de WhatsApp a una forma unica para la tabla. */
@@ -16,6 +18,8 @@ export function extraerContenido(m: WaMensaje): ContenidoNormalizado {
     caption: null,
     mediaId: null,
     mediaMime: null,
+    ubicacionLat: null,
+    ubicacionLon: null,
   };
 
   switch (m.type) {
@@ -40,7 +44,12 @@ export function extraerContenido(m: WaMensaje): ContenidoNormalizado {
     case 'location': {
       const l = m.location;
       const etiqueta = [l?.name, l?.address].filter(Boolean).join(' - ');
-      return { ...base, cuerpo: etiqueta || `${l?.latitude}, ${l?.longitude}` };
+      return {
+        ...base,
+        cuerpo: etiqueta || `${l?.latitude}, ${l?.longitude}`,
+        ubicacionLat: typeof l?.latitude === 'number' ? l.latitude : null,
+        ubicacionLon: typeof l?.longitude === 'number' ? l.longitude : null,
+      };
     }
 
     case 'button':

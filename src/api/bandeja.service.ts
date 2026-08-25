@@ -165,6 +165,9 @@ export class BandejaService {
         /** Sólo si el archivo ya está en disco: el front decide si pinta la imagen. */
         tieneMedia: sql<boolean>`${messages.mediaUrl} IS NOT NULL AND ${messages.eliminadoEn} IS NULL`,
         status: messages.status,
+        /** Coordenadas si es un mensaje de ubicación; el hilo arma el enlace al mapa. */
+        ubicacionLat: sql<number | null>`CASE WHEN ${messages.eliminadoEn} IS NULL THEN ${messages.ubicacionLat} END`,
+        ubicacionLon: sql<number | null>`CASE WHEN ${messages.eliminadoEn} IS NULL THEN ${messages.ubicacionLon} END`,
         /** Quién lo envió: el front lo necesita para saber si puede eliminarlo. */
         enviadoPorId: messages.sentByUserId,
         /**

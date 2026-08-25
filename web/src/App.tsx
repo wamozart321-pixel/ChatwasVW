@@ -12,6 +12,7 @@ import {
   type Etiqueta,
   type Mensaje,
   type Nota,
+  type UbicacionNegocio,
 } from './api';
 import BarraAsignacion from './componentes/BarraAsignacion';
 import ConfirmarEliminar from './componentes/ConfirmarEliminar';
@@ -58,6 +59,7 @@ export default function App() {
   const [verPlantillas, setVerPlantillas] = useState(false);
   const [archivoPendiente, setArchivoPendiente] = useState<File | null>(null);
   const [maxArchivoMB, setMaxArchivoMB] = useState(16);
+  const [ubicacionNegocio, setUbicacionNegocio] = useState<UbicacionNegocio | null>(null);
   const [porEliminar, setPorEliminar] = useState<Mensaje | null>(null);
   const [eliminando, setEliminando] = useState(false);
 
@@ -126,7 +128,13 @@ export default function App() {
   useEffect(() => {
     if (!asesor) return;
     api.asesores().then(setAsesores).catch(() => undefined);
-    api.config().then((c) => setMaxArchivoMB(c.maxArchivoMB)).catch(() => undefined);
+    api
+      .config()
+      .then((c) => {
+        setMaxArchivoMB(c.maxArchivoMB);
+        setUbicacionNegocio(c.ubicacionNegocio);
+      })
+      .catch(() => undefined);
     api.etiquetas().then(setEtiquetas).catch(() => undefined);
   }, [asesor]);
 
@@ -294,6 +302,29 @@ export default function App() {
   );
 
   // --- acciones ------------------------------------------------------------
+
+  /**
+   * Manda una ubicación. El servidor resuelve el enlace de Maps: los cortos
+   * hay que seguirlos y Google no manda cabeceras CORS para hacerlo desde acá.
+   */
+  async function enviarUbicacion(datos: {
+    latitud?: number;
+    longitud?: number;
+    texto?: string;
+    nombre?: string;
+    direccion?: string;
+  }) {
+    if (!seleccionada) return;
+    setEnviando(true);
+    setAviso('');
+    try {
+      await api.enviarUbicacion(seleccionada, datos);
+    } catch (e) {
+      setAviso(e instanceof ErrorApi ? e.message : 'No se pudo enviar la ubicación');
+    } finally {
+      setEnviando(false);
+    }
+  }
 
   async function enviar(texto: string) {
     if (!seleccionada) return;
@@ -553,6 +584,8 @@ export default function App() {
                 onEnviar={enviar}
                 onArchivo={setArchivoPendiente}
                 onPlantilla={() => setVerPlantillas(true)}
+                onUbicacion={enviarUbicacion}
+                ubicacionNegocio={ubicacionNegocio}
                 onEscribiendo={() => socketRef.current?.emit('escribiendo', seleccionada)}
                 onDejarDeEscribir={() =>
                   socketRef.current?.emit('dejar-de-escribir', seleccionada)

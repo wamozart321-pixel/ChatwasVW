@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import type { UbicacionNegocio } from '../api';
+import EnviarUbicacion from './EnviarUbicacion';
 
 function restante(vence: string | null): string {
   if (!vence) return '';
@@ -21,6 +23,8 @@ export default function Redactor({
   onEnviar,
   onArchivo,
   onPlantilla,
+  onUbicacion,
+  ubicacionNegocio,
   onEscribiendo,
   onDejarDeEscribir,
 }: {
@@ -30,10 +34,19 @@ export default function Redactor({
   onEnviar: (texto: string) => void;
   onArchivo: (archivo: File) => void;
   onPlantilla: () => void;
+  onUbicacion: (datos: {
+    latitud?: number;
+    longitud?: number;
+    texto?: string;
+    nombre?: string;
+    direccion?: string;
+  }) => void;
+  ubicacionNegocio: UbicacionNegocio | null;
   onEscribiendo: () => void;
   onDejarDeEscribir: () => void;
 }) {
   const [texto, setTexto] = useState('');
+  const [verUbicacion, setVerUbicacion] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const archivoRef = useRef<HTMLInputElement>(null);
 
@@ -110,6 +123,29 @@ export default function Redactor({
         >
           📎
         </button>
+
+        <div className="relative mb-0.5">
+          <button
+            onClick={() => setVerUbicacion((v) => !v)}
+            disabled={enviando}
+            title="Enviar ubicación"
+            className="rounded-xl border border-slate-200 px-3 py-2.5 text-slate-500 transition hover:bg-slate-50 disabled:opacity-40"
+          >
+            📍
+          </button>
+
+          {verUbicacion && (
+            <EnviarUbicacion
+              negocio={ubicacionNegocio}
+              enviando={enviando}
+              onCerrar={() => setVerUbicacion(false)}
+              onEnviar={(datos) => {
+                setVerUbicacion(false);
+                onUbicacion(datos);
+              }}
+            />
+          )}
+        </div>
         <textarea
           ref={areaRef}
           rows={1}

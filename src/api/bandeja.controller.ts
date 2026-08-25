@@ -1,7 +1,18 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { AsignacionService } from '../asignacion/asignacion.service';
 import { env } from '../config/env';
 import { AsesorActual } from '../auth/asesor.decorator';
+import { coordenadasDe, esEnlaceCorto, resolverEnlaceCorto } from '../messages/ubicacion';
 import { AuthGuard } from '../auth/auth.guard';
 import type { Asesor } from '../auth/auth.service';
 import { OutboundService } from '../messages/outbound.service';
@@ -122,6 +133,72 @@ export class BandejaController {
    */
   @Get('config')
   config() {
-    return { maxArchivoMB: env.MEDIA_MAX_MB };
+    return {
+      maxArchivoMB: env.MEDIA_MAX_MB,
+      // Si el local no tiene coordenadas cargadas, el boton de "nuestra
+      // ubicacion" no se dibuja. Se manda null y no se inventa nada.
+      ubicacionNegocio:
+        env.NEGOCIO_LAT !== undefined && env.NEGOCIO_LON !== undefined
+          ? {
+              latitud: env.NEGOCIO_LAT,
+              longitud: env.NEGOCIO_LON,
+              nombre: env.NEGOCIO_NOMBRE,
+              direccion: env.NEGOCIO_DIRECCION ?? null,
+            }
+          : null,
+    };
+  }
+
+  /**
+   * Manda una ubicacion.
+   *
+   * Acepta coordenadas ya resueltas o el texto crudo que pego el asesor: en la
+   * practica copia el enlace desde Google Maps, y los enlaces cortos hay que
+   * resolverlos aca porque Google no manda cabeceras CORS y el navegador no
+   * puede seguir la redireccion.
+   */
+  @Post('conversaciones/:id/ubicacion')
+  async ubicacion(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      latitud?: number;
+      longitud?: number;
+      texto?: string;
+      nombre?: string;
+      direccion?: string;
+    },
+    @AsesorActual() asesor: Asesor,
+  ) {
+    let latitud = body?.latitud;
+    let longitud = body?.longitud;
+
+    if (latitud === undefined || longitud === undefined) {
+      const texto = body?.texto ?? '';
+      const punto = esEnlaceCorto(texto)
+        ? await resolverEnlaceCorto(texto.trim())
+        : coordenadasDe(texto);
+
+      if (!punto) {
+        throw new BadRequestException(
+          'No se reconocio ninguna ubicacion. Pega el enlace de Google Maps o las coordenadas.',
+        );
+      }
+
+      latitud = punto.latitud;
+      longitud = punto.longitud;
+    }
+
+    const conv = await this.bandeja.detalle(id);
+    if (!conv.asignadoId) await this.asignacion.tomar(id, asesor).catch(() => undefined);
+
+    return this.saliente.enviarUbicacion({
+      a: conv.telefono,
+      latitud,
+      longitud,
+      nombre: body?.nombre,
+      direccion: body?.direccion,
+      userId: asesor.id,
+    });
   }
 }
