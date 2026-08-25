@@ -232,12 +232,13 @@ export class OutboundService {
       return confirmado;
     } catch (e) {
       const err = e as GraphError;
-      await this.mensajes.marcarFallido(fila.id, {
+      const fallido = await this.mensajes.marcarFallido(fila.id, {
         code: err.code,
         message: err.detalle ? `${err.message} | ${err.detalle}` : err.message,
       });
-      // El fallido tambien se empuja: el asesor tiene que verlo en rojo, no perderlo.
-      this.realtime.mensajeNuevo(params.conversationId, { ...fila, status: 'failed' });
+      // Se empuja la fila YA marcada, no la de antes del error: si no, el
+      // mensaje aparece en rojo pero sin decir por que fallo.
+      this.realtime.mensajeNuevo(params.conversationId, fallido ?? { ...fila, status: 'failed' });
       this.realtime.conversacionActualizada(params.conversationId);
 
       this.log.error(`envio fallido (${err.code ?? '?'}): ${err.message}`);

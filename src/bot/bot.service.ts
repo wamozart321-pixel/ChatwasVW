@@ -248,12 +248,14 @@ export class BotService {
       const confirmado = await this.mensajes.confirmarEnviado(fila.id, waMessageId);
       this.realtime.mensajeNuevo(params.conversationId, confirmado);
     } catch (e) {
-      await this.mensajes.marcarFallido(fila.id, { message: (e as Error).message });
+      const fallido = await this.mensajes.marcarFallido(fila.id, {
+        message: (e as Error).message,
+      });
 
       // El fallido tambien se empuja, igual que el de un asesor: si no, el hilo
       // abierto se queda sin la respuesta del bot y hay que salir y volver a
       // entrar a la conversacion para verla.
-      this.realtime.mensajeNuevo(params.conversationId, { ...fila, status: 'failed' });
+      this.realtime.mensajeNuevo(params.conversationId, fallido ?? { ...fila, status: 'failed' });
       this.log.error(`el bot no pudo responder: ${(e as Error).message}`);
     }
 

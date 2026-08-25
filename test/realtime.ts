@@ -181,6 +181,54 @@ async function main() {
     }
   });
 
+  await prueba('lo que llega por socket tiene la misma forma que el hilo', async () => {
+    // Durante un tiempo el socket mandaba la fila cruda de la base y el hilo
+    // otra forma distinta: `waTimestamp` contra `cuando`. Resultado: todo
+    // mensaje que llegaba en vivo se pintaba con "Invalid Date" y sin la foto
+    // hasta que el asesor recargaba. Esta prueba compara las dos vias campo a
+    // campo para que no vuelva a pasar.
+    const s = conectar(TOKEN);
+    try {
+      await esperar(s, 'connect');
+
+      const lista = await api('/conversaciones?estado=todas&asignado=todos&q=' + tel);
+      const conv = lista[0];
+      s.emit('ver', conv.id);
+      await new Promise((r) => setTimeout(r, 300));
+
+      const llegado = new Promise<any>((res) => s.once('mensaje:nuevo', (e: any) => res(e.mensaje)));
+
+      await webhookEntrante(tel, 'comparando las dos vias');
+      const porSocket = await Promise.race([
+        llegado,
+        new Promise((_, rej) => setTimeout(() => rej(new Error('no llego el mensaje')), 20_000)),
+      ]);
+
+      // La fecha tiene que ser una fecha de verdad, no undefined.
+      assert.ok(porSocket.cuando, 'el mensaje llego sin `cuando`');
+      assert.equal(
+        Number.isNaN(new Date(porSocket.cuando).getTime()),
+        false,
+        `\`cuando\` no es una fecha valida: ${porSocket.cuando}`,
+      );
+
+      // Y los campos que el hilo calcula tienen que venir tambien.
+      for (const campo of ['tieneMedia', 'esBot', 'eliminado']) {
+        assert.ok(campo in porSocket, `falta \`${campo}\` en lo que manda el socket`);
+      }
+
+      // Contra la via HTTP: mismas claves, sin sorpresas.
+      const hilo = await api(`/conversaciones/${conv.id}/mensajes`);
+      const porHttp = hilo.find((m: any) => m.id === porSocket.id);
+      assert.ok(porHttp, 'el mensaje no aparecio en el hilo');
+
+      const faltantes = Object.keys(porHttp).filter((k) => !(k in porSocket));
+      assert.deepEqual(faltantes, [], `el socket manda menos campos que el hilo: ${faltantes}`);
+    } finally {
+      s.close();
+    }
+  });
+
   await prueba('el webhook duplicado no genera evento duplicado', async () => {
     const s = conectar(TOKEN);
     try {

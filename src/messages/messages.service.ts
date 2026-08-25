@@ -111,8 +111,9 @@ export class MessagesService {
     return fila;
   }
 
+  /** Devuelve la fila ya con el motivo: es lo que se empuja al hilo abierto. */
   async marcarFallido(id: string, error: { code?: number; message: string }) {
-    await this.db
+    const [fila] = await this.db
       .update(messages)
       .set({
         status: 'failed',
@@ -120,7 +121,10 @@ export class MessagesService {
         errorMessage: error.message.slice(0, 1000),
         updatedAt: sql`clock_timestamp()`,
       })
-      .where(eq(messages.id, id));
+      .where(eq(messages.id, id))
+      .returning();
+
+    return fila;
   }
 
   /**

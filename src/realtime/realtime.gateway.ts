@@ -10,6 +10,7 @@ import {
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
 import { AuthService, type Asesor } from '../auth/auth.service';
+import { aVistaDeMensaje } from '../api/mensaje.vista';
 
 /** Sala a la que se suscriben todos: cambios que afectan la lista de chats. */
 const BANDEJA = 'bandeja';
@@ -182,8 +183,20 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   // --- emisores, usados por los servicios -----------------------------------
 
+  /**
+   * Empuja un mensaje al hilo abierto.
+   *
+   * La fila se traduce ACA y no en cada llamador: antes cada uno mandaba la
+   * fila cruda de la base, que tiene otra forma que la del hilo (`waTimestamp`
+   * contra `cuando`), y todo mensaje que llegaba en vivo se pintaba con la
+   * fecha en "Invalid Date" y sin la foto hasta recargar. Con la traduccion en
+   * un solo lugar, ningun llamador nuevo puede volver a olvidarse.
+   */
   mensajeNuevo(conversationId: string, mensaje: unknown) {
-    this.server.to(`conv:${conversationId}`).emit('mensaje:nuevo', { conversationId, mensaje });
+    this.server.to(`conv:${conversationId}`).emit('mensaje:nuevo', {
+      conversationId,
+      mensaje: aVistaDeMensaje(mensaje as Record<string, unknown>),
+    });
   }
 
   /**
