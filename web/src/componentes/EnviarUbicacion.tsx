@@ -220,6 +220,12 @@ export default function EnviarUbicacion({
             </button>
           )}
 
+          <p className="mt-1.5 text-[10px] leading-relaxed text-slate-400">
+            Direcciones tipo <span className="font-mono">Cra 27A #66-82</span> caen en la
+            esquina; la placa exacta se ajusta moviendo el pin. El mapa no tiene los números
+            de las casas en Colombia.
+          </p>
+
           {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
 
           {resultados && resultados.length > 0 && (
@@ -231,9 +237,16 @@ export default function EnviarUbicacion({
                       irA(r.latitud, r.longitud);
                       setResultados(null);
                     }}
-                    className="block w-full border-b border-slate-100 px-3 py-2 text-left text-xs text-slate-600 last:border-0 hover:bg-slate-50"
+                    className="block w-full border-b border-slate-100 px-3 py-2 text-left text-xs last:border-0 hover:bg-slate-50"
                   >
-                    {r.nombre}
+                    {/* La esquina calculada es la respuesta correcta a una
+                        direccion colombiana; el resto son tramos sueltos con
+                        ese nombre, que pueden estar en la otra punta. */}
+                    {/^[^—]*—\s*(esquina|cerca)/.test(r.nombre) ? (
+                      <span className="font-medium text-emerald-700">📍 {r.nombre}</span>
+                    ) : (
+                      <span className="text-slate-600">{r.nombre}</span>
+                    )}
                   </button>
                 </li>
               ))}

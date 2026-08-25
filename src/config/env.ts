@@ -95,6 +95,13 @@ const esquema = z.object({
    */
   PREFIJO_PAIS: z.string().regex(/^\d{1,4}$/).default('57'),
 
+  /**
+   * Ciudad que se asume cuando el asesor busca una direccion sin decir donde.
+   * "Cra 27A #66-82" existe en media docena de ciudades; sin esto el buscador
+   * elige cualquiera.
+   */
+  CIUDAD_PREDETERMINADA: z.string().default('Bogotá'),
+
   NEGOCIO_LAT: z.coerce.number().min(-90).max(90).optional(),
   NEGOCIO_LON: z.coerce.number().min(-180).max(180).optional(),
   NEGOCIO_DIRECCION: z.string().optional(),

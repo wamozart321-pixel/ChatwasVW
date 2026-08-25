@@ -27,6 +27,7 @@ import { extraerContenido, fechaDeMeta } from '../src/messages/contenido';
 import { firmaValida } from '../src/whatsapp/signature';
 import { coordenadasDe, esEnlaceCorto } from '../src/messages/ubicacion';
 import { aE164 } from '../src/conversations/conversations.service';
+import { parsearDireccionCo } from '../src/messages/direccion-co';
 
 let fallos = 0;
 
@@ -399,6 +400,41 @@ async function main() {
     // y anteponerle 57 lo convertiria en un numero que no existe.
     assert.equal(aE164('13055550123', '57'), '13055550123');
     assert.equal(aE164('4915112345678', '57'), '4915112345678');
+  });
+
+  console.log('\ndirecciones colombianas');
+
+  await prueba('entiende como se escriben las direcciones aca', () => {
+    // "Cra 27A #66-82" no es texto libre: es la Carrera 27A a la altura de la
+    // Calle 66. Sin partirla en sus dos vias, el buscador devuelve cualquiera
+    // de los 16 tramos llamados "Carrera 27A" que hay en Bogota.
+    for (const entrada of [
+      'cra 27a #66-82',
+      'Cra 27A No 66-82',
+      'CARRERA 27A # 66 - 82',
+      'kr 27a #66-82',
+      'carrera 27a 66-82',
+    ]) {
+      const d = parsearDireccionCo(entrada);
+      assert.ok(d, `no la reconocio: ${entrada}`);
+      assert.equal(d.principal, 'Carrera 27A');
+      assert.equal(d.cruce, 'Calle 66');
+      assert.equal(d.placa, '82');
+    }
+  });
+
+  await prueba('la via que cruza depende del tipo de la principal', () => {
+    // En la cuadricula, una carrera se ubica por una calle y al reves.
+    assert.equal(parsearDireccionCo('calle 66 #27a-82')?.cruce, 'Carrera 27A');
+    assert.equal(parsearDireccionCo('cra 27a #66-82')?.cruce, 'Calle 66');
+    assert.equal(parsearDireccionCo('dg 40 #12-34')?.cruce, 'Carrera 12');
+    assert.equal(parsearDireccionCo('tv 5 #10-20')?.cruce, 'Calle 10');
+  });
+
+  await prueba('no confunde con algo que no es una direccion', () => {
+    for (const entrada of ['pastillas de freno', 'Jetta 2009', 'hola', '']) {
+      assert.equal(parsearDireccionCo(entrada), null, `lo tomo por direccion: "${entrada}"`);
+    }
   });
 
   console.log('\nubicaciones');
