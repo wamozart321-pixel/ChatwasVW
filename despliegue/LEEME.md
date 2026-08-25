@@ -184,3 +184,49 @@ historial, no como via de distribucion. Son dos cosas distintas.
 El instalador no esta firmado, asi que Windows muestra "Windows protegio su PC"
 en la primera instalacion. Hay que darle **Mas informacion -> Ejecutar de todas
 formas**. Las actualizaciones posteriores ya no preguntan.
+
+## Dos bases: desarrollo y produccion
+
+Al principio el desarrollo y el servidor compartian la misma base de Neon. Eso
+dejo de ser aceptable en cuanto entraron usuarios reales: las suites de
+integracion **escriben**, y una de sus funciones —`vaciarBandejaDe`— le suelta a
+un asesor todas las conversaciones que tenga encima. Corriendo las pruebas, un
+cliente que estaba siendo atendido volvia a la cola sin que nadie entendiera por
+que, y cada corrida dejaba cientos de contactos falsos ensuciando las metricas.
+
+Ahora son dos ramas de Neon:
+
+| | Endpoint | Quien la usa |
+|---|---|---|
+| **Produccion** | `ep-sparkling-heart-...` | `/opt/whatswv/.env` en el servidor |
+| **Desarrollo** | `ep-cold-pine-...` | el `.env` de tu maquina |
+
+El `.env` local apunta a desarrollo. El del servidor no se toca desde aca: se
+edita por SSH. Hay una copia del de produccion en `.env.respaldo-produccion`,
+ignorada por git.
+
+Las cuentas de demostracion (`@repuestos.com`) viven **solo en desarrollo**: son
+material de las pruebas, no personas. En produccion estan de baja.
+
+Y hay una traba: las suites se niegan a correr contra algo que no sea localhost
+salvo que se diga a mano con `PRUEBAS_EN_PRODUCCION=si`.
+
+### Correr las pruebas
+
+```bash
+npm run build
+PORT=3100 npm start           # servidor local contra la rama de desarrollo
+
+PORT=3100 npm run test:smoke
+PORT=3100 npm run test:realtime
+PORT=3100 npm run test:asignacion
+PORT=3100 npm run test:operacion
+PORT=3100 npm run test:bot
+PORT=3100 ADMIN_CLAVE_PRUEBAS=... ASESOR_CLAVE_PRUEBAS=... npm run test:admin
+```
+
+### Refrescar desarrollo con datos de produccion
+
+Cuando la rama se aleje demasiado, en el panel de Neon se borra y se vuelve a
+crear desde `main`. Es instantaneo y no cuesta nada. Despues hay que reactivar
+las cuentas de demostracion, que en produccion figuran de baja.

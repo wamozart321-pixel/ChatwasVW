@@ -63,6 +63,14 @@ async function api(token: string | null, ruta: string, init: RequestInit = {}) {
 async function main() {
   exigirEntornoSeguro();
 
+  /** Datos de un usuario nuevo, con correo distinto en cada llamada. */
+  const nuevoUsuario = () => ({
+    nombre: 'Prueba Automatica',
+    email: `prueba.${randomUUID().slice(0, 8)}@chatwasvw.com`,
+    clave: 'claveDePrueba1',
+    rol: 'asesor',
+  });
+
   if (!ADMIN_CLAVE || !ASESOR_CLAVE) {
     console.error(`
   Faltan las claves. Esta suite toca cuentas reales, asi que no lleva
@@ -91,12 +99,27 @@ async function main() {
     assert.equal((await api(asesor, '/api/admin/usuarios')).status, 403);
   });
 
-  await prueba('el admin ve la lista completa', async () => {
+  await prueba('el admin ve la lista, incluidos los de baja', async () => {
     const r = await api(admin, '/api/admin/usuarios');
     assert.equal(r.status, 200);
     assert.ok(Array.isArray(r.cuerpo) && r.cuerpo.length > 0);
-    // Los dados de baja tambien: si no, no habria forma de reactivarlos.
-    assert.ok(r.cuerpo.some((u: any) => u.activo === false), 'no vinieron los de baja');
+
+    // La lista tiene que traer tambien a los dados de baja: si no, no habria
+    // forma de reactivarlos. Se crea uno y se lo da de baja en vez de confiar
+    // en que ya haya alguno, que depende de como quedo la base de antes.
+    const creado = await api(admin, '/api/admin/usuarios', {
+      method: 'POST',
+      body: JSON.stringify(nuevoUsuario()),
+    });
+    await api(admin, `/api/admin/usuarios/${creado.cuerpo.id}/estado`, {
+      method: 'POST',
+      body: JSON.stringify({ activo: false }),
+    });
+
+    const conBaja = await api(admin, '/api/admin/usuarios');
+    const suyo = conBaja.cuerpo.find((u: any) => u.id === creado.cuerpo.id);
+    assert.ok(suyo, 'el de baja no aparece en la lista');
+    assert.equal(suyo.activo, false);
   });
 
   await prueba('un asesor no puede darse el rol de admin', async () => {
@@ -116,17 +139,10 @@ async function main() {
 
   console.log('\nvalidaciones\n');
 
-  const nuevo = () => ({
-    nombre: 'Prueba Automatica',
-    email: `prueba.${randomUUID().slice(0, 8)}@chatwasvw.com`,
-    clave: 'claveDePrueba1',
-    rol: 'asesor',
-  });
-
   await prueba('rechaza una clave corta', async () => {
     const r = await api(admin, '/api/admin/usuarios', {
       method: 'POST',
-      body: JSON.stringify({ ...nuevo(), clave: '123' }),
+      body: JSON.stringify({ ...nuevoUsuario(), clave: '123' }),
     });
     assert.equal(r.status, 400);
     assert.match(r.cuerpo.message, /8 caracteres/);
@@ -135,7 +151,7 @@ async function main() {
   await prueba('rechaza un correo mal formado', async () => {
     const r = await api(admin, '/api/admin/usuarios', {
       method: 'POST',
-      body: JSON.stringify({ ...nuevo(), email: 'no-es-un-correo' }),
+      body: JSON.stringify({ ...nuevoUsuario(), email: 'no-es-un-correo' }),
     });
     assert.equal(r.status, 400);
   });
@@ -143,7 +159,7 @@ async function main() {
   await prueba('rechaza un correo repetido', async () => {
     const r = await api(admin, '/api/admin/usuarios', {
       method: 'POST',
-      body: JSON.stringify({ ...nuevo(), email: ASESOR_EMAIL }),
+      body: JSON.stringify({ ...nuevoUsuario(), email: ASESOR_EMAIL }),
     });
     assert.equal(r.status, 409);
   });
@@ -151,7 +167,7 @@ async function main() {
   await prueba('rechaza un rol inventado', async () => {
     const r = await api(admin, '/api/admin/usuarios', {
       method: 'POST',
-      body: JSON.stringify({ ...nuevo(), rol: 'jefe' }),
+      body: JSON.stringify({ ...nuevoUsuario(), rol: 'jefe' }),
     });
     assert.equal(r.status, 400);
   });
@@ -202,7 +218,7 @@ async function main() {
 
   console.log('\nciclo de vida de un usuario\n');
 
-  const datos = nuevo();
+  const datos = nuevoUsuario();
   let creadoId = '';
 
   await prueba('lo crea y puede entrar', async () => {

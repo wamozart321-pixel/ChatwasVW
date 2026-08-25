@@ -11,3 +11,6 @@ escritorio/node_modules
 escritorio/salida
 
 .env.produccion
+
+# respaldo del .env de produccion, generado al separar entornos
+.env.respaldo-produccion
