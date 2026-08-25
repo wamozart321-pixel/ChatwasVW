@@ -71,6 +71,7 @@ export default function ListaChats({
   onBusqueda,
   onEtiquetaFiltro,
   onSeleccionar,
+  onNuevoChat,
 }: {
   conversaciones: Conversacion[];
   seleccionada: string | null;
@@ -85,6 +86,7 @@ export default function ListaChats({
   onBusqueda: (v: string) => void;
   onEtiquetaFiltro: (v: string) => void;
   onSeleccionar: (id: string) => void;
+  onNuevoChat: () => void;
 }) {
   const sinLeer = conversaciones.reduce((n, c) => n + (c.noLeidos > 0 ? 1 : 0), 0);
   const [verTodasEtiquetas, setVerTodasEtiquetas] = useState(false);
@@ -103,9 +105,18 @@ export default function ListaChats({
       <div className="border-b border-slate-200 px-4 py-3">
         <div className="flex items-baseline justify-between">
           <h2 className="text-base font-semibold text-slate-900">Chats</h2>
-          <span className="text-xs text-slate-500">
-            {conversaciones.length} · {sinLeer} sin leer
-          </span>
+          <div className="flex items-baseline gap-2">
+            <span className="text-xs text-slate-500">
+              {conversaciones.length} · {sinLeer} sin leer
+            </span>
+            <button
+              onClick={onNuevoChat}
+              title="Escribirle a un número"
+              className="rounded-lg bg-marca-600 px-2 py-0.5 text-sm font-medium leading-5 text-white transition hover:bg-marca-700"
+            >
+              +
+            </button>
+          </div>
         </div>
 
         <input

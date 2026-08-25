@@ -26,6 +26,7 @@ import {
 import { extraerContenido, fechaDeMeta } from '../src/messages/contenido';
 import { firmaValida } from '../src/whatsapp/signature';
 import { coordenadasDe, esEnlaceCorto } from '../src/messages/ubicacion';
+import { aE164 } from '../src/conversations/conversations.service';
 
 let fallos = 0;
 
@@ -374,6 +375,30 @@ async function main() {
     assert.throws(() => parsearFranja('8:30 a 17:30'));
     assert.throws(() => parsearFranja('17:30-08:30'), /después/);
     assert.equal(parsearFranja('cerrado'), null);
+  });
+
+  console.log('\ntelefonos');
+
+  await prueba('completa el indicativo de los numeros locales', () => {
+    // Un asesor escribe el celular como lo tiene en la agenda. Meta lo exige
+    // en E.164 sin '+', asi que todas estas formas tienen que dar lo mismo.
+    for (const entrada of [
+      '3181875988',
+      '318 187 5988',
+      '+57 318 187 5988',
+      '573181875988',
+      '0057 318 1875988',
+      '(318) 187-5988',
+    ]) {
+      assert.equal(aE164(entrada, '57'), '573181875988', `fallo con: ${entrada}`);
+    }
+  });
+
+  await prueba('no le toca el indicativo a un numero extranjero', () => {
+    // La regla es "10 digitos = local". Un numero mas largo ya trae indicativo
+    // y anteponerle 57 lo convertiria en un numero que no existe.
+    assert.equal(aE164('13055550123', '57'), '13055550123');
+    assert.equal(aE164('4915112345678', '57'), '4915112345678');
   });
 
   console.log('\nubicaciones');

@@ -79,6 +79,13 @@ const esquema = z.object({
    * clic en vez de buscarla en Maps y copiar el enlace cada vez.
    * Vacio = el boton de "nuestra ubicacion" no aparece.
    */
+  /**
+   * Indicativo del pais, sin '+'. Se usa cuando un asesor escribe un numero
+   * local: en Colombia los celulares son 10 digitos y Meta los exige con el 57
+   * adelante. Un numero que ya venga con indicativo se deja como esta.
+   */
+  PREFIJO_PAIS: z.string().regex(/^\d{1,4}$/).default('57'),
+
   NEGOCIO_LAT: z.coerce.number().min(-90).max(90).optional(),
   NEGOCIO_LON: z.coerce.number().min(-180).max(180).optional(),
   NEGOCIO_DIRECCION: z.string().optional(),

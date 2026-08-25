@@ -21,6 +21,7 @@ import ListaChats from './componentes/ListaChats';
 import Login from './componentes/Login';
 import PanelContacto from './componentes/PanelContacto';
 import PanelEquipo from './componentes/PanelEquipo';
+import NuevoChat from './componentes/NuevoChat';
 import PanelUsuarios from './componentes/PanelUsuarios';
 import PanelMetricas from './componentes/PanelMetricas';
 import PreviaArchivo from './componentes/PreviaArchivo';
@@ -55,6 +56,7 @@ export default function App() {
   const [escribiendo, setEscribiendo] = useState<string[]>([]);
   const [verEquipo, setVerEquipo] = useState(false);
   const [verUsuarios, setVerUsuarios] = useState(false);
+  const [verNuevoChat, setVerNuevoChat] = useState(false);
   const [verMetricas, setVerMetricas] = useState(false);
   const [verPlantillas, setVerPlantillas] = useState(false);
   const [archivoPendiente, setArchivoPendiente] = useState<File | null>(null);
@@ -479,6 +481,18 @@ export default function App() {
           {verUsuarios && asesor.rol === 'admin' && (
             <PanelUsuarios yo={asesor} onCerrar={() => setVerUsuarios(false)} />
           )}
+          {verNuevoChat && (
+            <NuevoChat
+              onCerrar={() => setVerNuevoChat(false)}
+              onAbrir={(id) => {
+                setVerNuevoChat(false);
+                // La lista se recarga para que el chat nuevo aparezca; sin esto
+                // se selecciona un id que todavía no está en pantalla.
+                void cargarLista();
+                setSeleccionada(id);
+              }}
+            />
+          )}
         </div>
       </header>
 
@@ -490,6 +504,7 @@ export default function App() {
           asignado={asignado}
           busqueda={busqueda}
           asesorId={asesor.id}
+          onNuevoChat={() => setVerNuevoChat(true)}
           etiquetas={etiquetas}
           etiquetaFiltro={etiquetaFiltro}
           onFiltro={setFiltro}

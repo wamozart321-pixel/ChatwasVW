@@ -711,6 +711,51 @@ async function main() {
 
   await pool.end().catch(() => undefined);
 
+  console.log('\nescribirle a alguien que no escribio');
+
+  const telNuevo = telAleatorio();
+  let convNueva = '';
+
+  await prueba('abre el chat y le completa el indicativo', async () => {
+    const { cuerpo } = await api(tokenAndres, '/conversaciones', {
+      method: 'POST',
+      body: JSON.stringify({ telefono: telNuevo.slice(2), nombre: 'Cliente Nuevo' }),
+    });
+
+    convNueva = cuerpo.id;
+    assert.equal(cuerpo.telefono, telNuevo, 'no completo el indicativo');
+    // Nunca escribio: la ventana tiene que estar cerrada.
+    assert.equal(cuerpo.ventanaAbierta, false);
+  });
+
+  await prueba('el mismo numero no abre un chat duplicado', async () => {
+    const { cuerpo } = await api(tokenAndres, '/conversaciones', {
+      method: 'POST',
+      body: JSON.stringify({ telefono: '+' + telNuevo }),
+    });
+    assert.equal(cuerpo.id, convNueva, 'creo una conversacion aparte');
+  });
+
+  await prueba('no deja mandarle texto libre', async () => {
+    // Es la regla de WhatsApp, no una decision nuestra: sin un mensaje del
+    // cliente en las ultimas 24 h solo salen plantillas aprobadas.
+    const { status } = await api(tokenAndres, `/conversaciones/${convNueva}/mensajes`, {
+      method: 'POST',
+      body: JSON.stringify({ texto: 'hola' }),
+    });
+    assert.equal(status, 422, 'dejo mandar texto con la ventana cerrada');
+  });
+
+  await prueba('rechaza un numero que no es un numero', async () => {
+    for (const mal of ['123', 'abcdef', '']) {
+      const { status } = await api(tokenAndres, '/conversaciones', {
+        method: 'POST',
+        body: JSON.stringify({ telefono: mal }),
+      });
+      assert.equal(status, 400, `acepto: "${mal}"`);
+    }
+  });
+
   console.log(fallos === 0 ? '\nTODO OK\n' : `\n${fallos} PRUEBA(S) FALLARON\n`);
   process.exit(fallos === 0 ? 0 : 1);
 }

@@ -12,6 +12,21 @@ export function normalizarTelefono(valor: string): string {
   return digitos.startsWith('00') ? digitos.slice(2) : digitos;
 }
 
+/**
+ * Completa el indicativo cuando el asesor escribe un numero local.
+ *
+ * En Colombia los celulares son 10 digitos y empiezan por 3; Meta los quiere
+ * como 57XXXXXXXXXX. Un numero mas largo ya trae indicativo y no se toca: la
+ * regla es "10 digitos = local", que es la unica forma corta que existe aca.
+ */
+export function aE164(valor: string, prefijoPais: string): string {
+  const digitos = normalizarTelefono(valor);
+  if (!digitos) return '';
+  if (digitos.startsWith(prefijoPais) && digitos.length > 10) return digitos;
+  if (digitos.length === 10) return prefijoPais + digitos;
+  return digitos;
+}
+
 @Injectable()
 export class ConversationsService {
   constructor(@Inject(DB) private readonly db: Database) {}

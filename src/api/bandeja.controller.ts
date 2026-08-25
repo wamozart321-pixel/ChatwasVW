@@ -12,6 +12,7 @@ import {
 import { AsignacionService } from '../asignacion/asignacion.service';
 import { env } from '../config/env';
 import { AsesorActual } from '../auth/asesor.decorator';
+import { ConversationsService, aE164 } from '../conversations/conversations.service';
 import { GeocodificarService } from '../messages/geocodificar.service';
 import { coordenadasDe, esEnlaceCorto, resolverEnlaceCorto } from '../messages/ubicacion';
 import { AuthGuard } from '../auth/auth.guard';
@@ -27,6 +28,7 @@ export class BandejaController {
     private readonly saliente: OutboundService,
     private readonly asignacion: AsignacionService,
     private readonly geo: GeocodificarService,
+    private readonly conversaciones: ConversationsService,
   ) {}
 
   @Get('conversaciones')
@@ -173,6 +175,38 @@ export class BandejaController {
     }
 
     return { direccion: await this.geo.direccionDe(latitud, longitud) };
+  }
+
+  /**
+   * Abre un chat con un numero que todavia no escribio.
+   *
+   * Ojo con lo que se puede hacer despues: si el cliente nunca escribio, la
+   * ventana de 24 h esta cerrada y WhatsApp NO permite texto libre. Lo unico
+   * que sale es una plantilla aprobada. Por eso se devuelve `ventanaAbierta`:
+   * la bandeja lo usa para mostrar el camino correcto en vez de dejar que el
+   * asesor escriba un mensaje que va a ser rechazado.
+   */
+  @Post('conversaciones')
+  async abrirChat(@Body() body: { telefono?: string; nombre?: string }) {
+    const telefono = aE164(body?.telefono ?? '', env.PREFIJO_PAIS);
+
+    if (telefono.length < 10 || telefono.length > 15) {
+      throw new BadRequestException(
+        'El numero no parece valido. Escribilo con indicativo, o los 10 digitos del celular.',
+      );
+    }
+
+    const contacto = await this.conversaciones.asegurarContacto(
+      telefono,
+      body?.nombre?.trim() || undefined,
+    );
+    const conversacion = await this.conversaciones.asegurarConversacion(contacto.id);
+
+    return {
+      id: conversacion.id,
+      telefono,
+      ventanaAbierta: this.conversaciones.ventanaAbierta(conversacion.windowExpiresAt),
+    };
   }
 
   /**

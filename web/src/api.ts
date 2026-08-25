@@ -211,6 +211,13 @@ export const api = {
    * pego el asesor y lo resuelve el servidor: los enlaces cortos de Maps hay
    * que seguirlos, y Google no manda cabeceras CORS para hacerlo desde aca.
    */
+  /** Abre un chat con un numero que todavia no escribio. */
+  abrirChat: (telefono: string, nombre?: string) =>
+    pedir<{ id: string; telefono: string; ventanaAbierta: boolean }>('/conversaciones', {
+      method: 'POST',
+      body: JSON.stringify({ telefono, nombre }),
+    }),
+
   buscarDireccion: (q: string) =>
     pedir<Lugar[]>(`/direcciones?q=${encodeURIComponent(q)}`),
 
