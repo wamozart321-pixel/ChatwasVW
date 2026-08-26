@@ -14,3 +14,6 @@ escritorio/salida
 
 # respaldo del .env de produccion, generado al separar entornos
 .env.respaldo-produccion
+
+# respaldos de la base: pueden tener datos de clientes
+respaldos/

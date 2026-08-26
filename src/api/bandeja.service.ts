@@ -140,6 +140,54 @@ export class BandejaService {
     return fila;
   }
 
+  /**
+   * Cuantas conversaciones hay en cada estado.
+   *
+   * Va aparte de la lista porque la lista viene filtrada por estado: si se
+   * contara sobre ella, "Abierto" siempre diria el total de abiertas y nunca
+   * se sabria cuantas pendientes o resueltas hay del otro lado.
+   *
+   * Respeta el resto de los filtros —de quien es, etiqueta, busqueda— para que
+   * los numeros sean de lo que el asesor esta mirando.
+   */
+  async conteoPorEstado(params: {
+    asesor: Asesor;
+    asignado?: string;
+    q?: string;
+    etiqueta?: string;
+  }) {
+    const condiciones = [sql`c.estado IS NOT NULL`];
+
+    if (params.asignado === 'mios') condiciones.push(sql`c.assigned_to = ${params.asesor.id}`);
+    if (params.asignado === 'sin_asignar') condiciones.push(sql`c.assigned_to IS NULL`);
+
+    if (params.q?.trim()) {
+      const like = `%${params.q.trim()}%`;
+      condiciones.push(sql`(ct.nombre ILIKE ${like} OR ct.wa_id ILIKE ${like})`);
+    }
+
+    if (params.etiqueta) {
+      condiciones.push(sql`EXISTS (
+        SELECT 1 FROM conversation_tags ce JOIN tags t ON t.id = ce.tag_id
+         WHERE ce.conversation_id = c.id AND t.id = ${params.etiqueta}
+      )`);
+    }
+
+    const { rows } = await this.db.execute<{ estado: string; n: number }>(sql`
+      SELECT c.estado, count(*)::int AS n
+        FROM conversations c
+        JOIN contacts ct ON ct.id = c.contact_id
+       WHERE ${sql.join(condiciones, sql` AND `)}
+       GROUP BY c.estado
+    `);
+
+    const conteo: Record<string, number> = { abierto: 0, pendiente: 0, resuelto: 0 };
+    for (const f of rows) conteo[f.estado] = f.n;
+    conteo.todas = conteo.abierto + conteo.pendiente + conteo.resuelto;
+
+    return conteo;
+  }
+
   /** Hilo paginado hacia atras: `antesDe` es el wa_timestamp del mas viejo ya cargado. */
   async hilo(conversationId: string, antesDe?: string) {
     const filtro = antesDe

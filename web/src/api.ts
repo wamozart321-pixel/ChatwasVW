@@ -218,6 +218,11 @@ export const api = {
       body: JSON.stringify({ telefono, nombre }),
     }),
 
+  conteoEstados: (asignado: string, q: string, etiqueta: string) =>
+    pedir<Record<string, number>>(
+      `/conteo-estados?asignado=${asignado}&q=${encodeURIComponent(q)}&etiqueta=${etiqueta}`,
+    ),
+
   buscarDireccion: (q: string) =>
     pedir<Lugar[]>(`/direcciones?q=${encodeURIComponent(q)}`),
 

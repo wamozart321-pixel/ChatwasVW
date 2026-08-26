@@ -45,7 +45,9 @@ export default function App() {
   const [notas, setNotas] = useState<Nota[]>([]);
   const [asesores, setAsesores] = useState<Asesor[]>([]);
 
-  const [filtro, setFiltro] = useState('todas');
+  // Arranca en 'abierto' y no en 'todas': la bandeja tiene que mostrar lo que
+  // hay que atender. Con 'todas' se mezcla lo resuelto de meses con lo de hoy.
+  const [filtro, setFiltro] = useState('abierto');
   const [asignado, setAsignado] = useState('todos');
   const [etiquetaFiltro, setEtiquetaFiltro] = useState('');
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
@@ -57,6 +59,7 @@ export default function App() {
   const [verEquipo, setVerEquipo] = useState(false);
   const [verUsuarios, setVerUsuarios] = useState(false);
   const [verNuevoChat, setVerNuevoChat] = useState(false);
+  const [conteo, setConteo] = useState<Record<string, number> | null>(null);
   const [verMetricas, setVerMetricas] = useState(false);
   const [verPlantillas, setVerPlantillas] = useState(false);
   const [archivoPendiente, setArchivoPendiente] = useState<File | null>(null);
@@ -154,6 +157,13 @@ export default function App() {
       const lista = await api.conversaciones(filtro, busqueda, asignado, etiquetaFiltro);
       setConversaciones(lista);
       revisarNovedades(lista);
+
+      // Los contadores van aparte: la lista viene filtrada por estado, asi que
+      // contando sobre ella nunca se sabria cuantas hay en los otros estados.
+      api
+        .conteoEstados(asignado, busqueda, etiquetaFiltro)
+        .then(setConteo)
+        .catch(() => undefined);
     } catch (e) {
       if (e instanceof ErrorApi && e.status === 401) salir();
     }
@@ -505,6 +515,7 @@ export default function App() {
           busqueda={busqueda}
           asesorId={asesor.id}
           onNuevoChat={() => setVerNuevoChat(true)}
+          conteo={conteo}
           etiquetas={etiquetas}
           etiquetaFiltro={etiquetaFiltro}
           onFiltro={setFiltro}
@@ -530,11 +541,21 @@ export default function App() {
                   <p className="text-xs text-slate-400">+{actual.telefono}</p>
                 </div>
 
-                <div className="ml-auto flex gap-1.5">
-                  {ESTADOS.map((e) => (
+                <div className="ml-auto flex items-center gap-1.5">
+                  {/*
+                    Abierto y Pendiente son estados; Resolver es una ACCION. Con
+                    los tres iguales nadie cerraba nada y "Abierto" se volvia un
+                    cajon donde cae todo y no significa nada.
+                  */}
+                  {ESTADOS.filter((e) => e.id !== 'resuelto').map((e) => (
                     <button
                       key={e.id}
                       onClick={() => accion(() => api.cambiarEstado(seleccionada!, e.id))}
+                      title={
+                        e.id === 'abierto'
+                          ? 'Se está atendiendo ahora'
+                          : 'Esperando algo: al proveedor, o que el cliente decida'
+                      }
                       className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
                         actual.estado === e.id
                           ? 'bg-slate-800 text-white'
@@ -544,6 +565,23 @@ export default function App() {
                       {e.etiqueta}
                     </button>
                   ))}
+
+                  {actual.estado === 'resuelto' ? (
+                    <button
+                      onClick={() => accion(() => api.cambiarEstado(seleccionada!, 'abierto'))}
+                      className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                    >
+                      ↩ Reabrir
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => accion(() => api.cambiarEstado(seleccionada!, 'resuelto'))}
+                      title="El asunto se terminó: sale de la bandeja"
+                      className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-emerald-700"
+                    >
+                      ✓ Resolver
+                    </button>
+                  )}
                 </div>
               </div>
 

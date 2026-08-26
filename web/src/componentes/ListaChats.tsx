@@ -72,6 +72,7 @@ export default function ListaChats({
   onEtiquetaFiltro,
   onSeleccionar,
   onNuevoChat,
+  conteo,
 }: {
   conversaciones: Conversacion[];
   seleccionada: string | null;
@@ -87,6 +88,7 @@ export default function ListaChats({
   onEtiquetaFiltro: (v: string) => void;
   onSeleccionar: (id: string) => void;
   onNuevoChat: () => void;
+  conteo: Record<string, number> | null;
 }) {
   const sinLeer = conversaciones.reduce((n, c) => n + (c.noLeidos > 0 ? 1 : 0), 0);
   const [verTodasEtiquetas, setVerTodasEtiquetas] = useState(false);
@@ -143,19 +145,29 @@ export default function ListaChats({
         </div>
 
         <div className="mt-2 flex gap-1.5">
-          {ESTADOS.map((f) => (
-            <button
-              key={f.id}
-              onClick={() => onFiltro(f.id)}
-              className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
-                filtro === f.id
-                  ? 'bg-marca-500 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {f.etiqueta}
-            </button>
-          ))}
+          {ESTADOS.map((f) => {
+            // El numero al lado hace visible si el trabajo se esta acumulando.
+            // Sin el, "Abierto" es una palabra y nadie sabe si son 3 o 300.
+            const n = conteo?.[f.id];
+            return (
+              <button
+                key={f.id}
+                onClick={() => onFiltro(f.id)}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
+                  filtro === f.id
+                    ? 'bg-marca-500 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {f.etiqueta}
+                {n !== undefined && (
+                  <span className={filtro === f.id ? 'ml-1 text-white/80' : 'ml-1 text-slate-400'}>
+                    {n}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* Sólo aparece si hay etiquetas creadas: un filtro vacío es ruido. */}

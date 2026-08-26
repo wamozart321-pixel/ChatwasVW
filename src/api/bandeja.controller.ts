@@ -135,6 +135,17 @@ export class BandejaController {
    * Duplicar el tope de archivo en el cliente lleva a que un dia no coincidan y
    * el asesor descubra el limite recien cuando el envio falla.
    */
+  /** Cuantas hay en cada estado, para los contadores de los filtros. */
+  @Get('conteo-estados')
+  conteoEstados(
+    @AsesorActual() asesor: Asesor,
+    @Query('asignado') asignado?: string,
+    @Query('q') q?: string,
+    @Query('etiqueta') etiqueta?: string,
+  ) {
+    return this.bandeja.conteoPorEstado({ asesor, asignado, q, etiqueta });
+  }
+
   @Get('config')
   config() {
     return {
