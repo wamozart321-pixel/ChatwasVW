@@ -58,6 +58,8 @@ export interface FilaBandeja {
   vistaPreviaDireccion: string | null;
   vistaPreviaEstado: string | null;
   asignadoId: string | null;
+  /** true si esta en la lista solo porque el asesor la tiene abierta. */
+  fueraDelFiltro: boolean;
   asignadoNombre: string | null;
   etiquetas: { nombre: string; color: string }[];
 }
@@ -100,6 +102,10 @@ export class BandejaService {
         ct.nombre                      AS contacto,
         ct.wa_id                       AS telefono,
         c.unread_count                 AS "noLeidos",
+        -- Viene en la lista pero no pertenece a esta solapa: esta porque el
+        -- asesor la tiene abierta. La bandeja la separa para que no se
+        -- confunda con las que si corresponden.
+        NOT (${condicionDeVista(vista)}) AS "fueraDelFiltro",
         c.last_message_at              AS "ultimoMensaje",
         c.window_expires_at            AS "ventanaVence",
         coalesce(c.window_expires_at > now(), false) AS "ventanaAbierta",

@@ -21,6 +21,8 @@ export interface Conversacion {
   vistaPreviaEstado: string | null;
   asignadoId: string | null;
   asignadoNombre: string | null;
+  /** Está en la lista sólo porque la tenés abierta, no porque calce en la solapa. */
+  fueraDelFiltro: boolean;
   etiquetas: Etiqueta[];
 }
 

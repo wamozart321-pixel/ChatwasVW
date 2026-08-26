@@ -104,6 +104,16 @@ export default function ListaChats({
   onBorrarEtiqueta: (id: string, nombre: string) => void;
 }) {
   const sinLeer = conversaciones.reduce((n, c) => n + (c.noLeidos > 0 ? 1 : 0), 0);
+
+  /**
+   * La conversación abierta que ya no calza en la solapa va aparte, arriba.
+   *
+   * Se queda en la lista para que el hilo no se cierre debajo del asesor
+   * mientras contesta, pero mezclada con las demás daría a entender que
+   * pertenece a esta solapa. Separada y rotulada, se ve por qué está ahí.
+   */
+  const fuera = conversaciones.filter((c) => c.fueraDelFiltro);
+  const propias = conversaciones.filter((c) => !c.fueraDelFiltro);
   const [verTodasEtiquetas, setVerTodasEtiquetas] = useState(false);
 
   // Con muchas etiquetas la fila se come la barra lateral, que es donde va lo
@@ -122,7 +132,7 @@ export default function ListaChats({
           <h2 className="text-base font-semibold text-slate-900">Chats</h2>
           <div className="flex items-baseline gap-2">
             <span className="text-xs text-slate-500">
-              {conversaciones.length} · {sinLeer} sin leer
+              {propias.length} · {sinLeer} sin leer
             </span>
             <button
               onClick={onNuevoChat}
@@ -244,7 +254,7 @@ export default function ListaChats({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {conversaciones.length === 0 && (
+        {propias.length === 0 && fuera.length === 0 && (
           <p className="px-4 py-8 text-center text-sm text-slate-400">
             {etiquetaFiltro
               ? 'Ninguna con esa etiqueta'
@@ -254,7 +264,22 @@ export default function ListaChats({
           </p>
         )}
 
-        {conversaciones.map((c) => {
+        {fuera.length > 0 && (
+          <>
+            <p className="bg-amber-50 px-4 py-1 text-[10px] font-medium uppercase tracking-wide text-amber-700">
+              Abierta ahora · no está en esta solapa
+            </p>
+            {fuera.map((c) => fila(c))}
+            <div className="border-b-2 border-slate-200" />
+          </>
+        )}
+
+        {propias.map((c) => fila(c))}
+      </div>
+    </div>
+  );
+
+  function fila(c: Conversacion) {
           const activa = c.id === seleccionada;
           const mia = c.asignadoId === asesorId;
 
@@ -339,9 +364,6 @@ export default function ListaChats({
                 </div>
               </div>
             </button>
-          );
-        })}
-      </div>
-    </div>
-  );
+    );
+  }
 }
