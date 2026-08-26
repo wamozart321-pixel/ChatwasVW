@@ -1,10 +1,49 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, isNull, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, lt, sql, type SQL } from 'drizzle-orm';
 import type { Asesor } from '../auth/auth.service';
 import { DB, type Database } from '../db/db.module';
 import { contacts, conversations, events, messages, users } from '../db/schema';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { GraphService } from '../whatsapp/graph.service';
+
+/**
+ * Que muestra cada solapa de la bandeja.
+ *
+ * "Abierto" NO es simplemente `estado = 'abierto'`. Una conversacion recien
+ * llegada tambien esta abierta, pero todavia no la miro nadie: mezclarla con
+ * las que el asesor ya leyo y esta trabajando hace que la solapa no signifique
+ * nada. Lo que separa a una de la otra es el contador de sin leer, que es el
+ * globito que el asesor ve en la lista.
+ *
+ *   Sin leer  algo llego y nadie lo abrio todavia
+ *   Abierto   ya se leyo, se esta atendiendo
+ *   Pendiente esperando al proveedor, o que el cliente decida
+ *   Resuelto  terminado
+ *   Activas   todo lo que no esta resuelto: la bandeja de trabajo
+ */
+function condicionDeVista(vista: string): SQL {
+  switch (vista) {
+    case 'sin_leer':
+      // Tambien las pendientes: si el cliente escribe, hay que volver a mirarla.
+      return sql`c.unread_count > 0 AND c.estado <> 'resuelto'`;
+
+    case 'abierto':
+      return sql`c.estado = 'abierto' AND c.unread_count = 0`;
+
+    case 'pendiente':
+      return sql`c.estado = 'pendiente'`;
+
+    case 'resuelto':
+      return sql`c.estado = 'resuelto'`;
+
+    case 'todas':
+      return sql`true`;
+
+    // 'activas' y cualquier cosa rara: la bandeja de trabajo.
+    default:
+      return sql`c.estado <> 'resuelto'`;
+  }
+}
 
 export interface FilaBandeja {
   id: string;
@@ -44,7 +83,7 @@ export class BandejaService {
     etiqueta?: string;
     asesorId: string;
   }): Promise<FilaBandeja[]> {
-    const estado = opciones.estado && opciones.estado !== 'todas' ? opciones.estado : null;
+    const vista = opciones.estado ?? 'activas';
     const busqueda = opciones.busqueda?.trim() || null;
     const etiqueta = opciones.etiqueta?.trim() || null;
     // 'mios' y 'sin_asignar' son las dos vistas que un asesor usa todo el día.
@@ -87,7 +126,7 @@ export class BandejaService {
          ORDER BY wa_timestamp DESC, id DESC
          LIMIT 1
       ) m ON true
-      WHERE (${estado}::text IS NULL OR c.estado = ${estado})
+      WHERE ${condicionDeVista(vista)}
         AND (${busqueda}::text IS NULL
              OR ct.nombre ILIKE '%' || ${busqueda} || '%'
              OR ct.wa_id  ILIKE '%' || ${busqueda} || '%')
@@ -173,19 +212,24 @@ export class BandejaService {
       )`);
     }
 
-    const { rows } = await this.db.execute<{ estado: string; n: number }>(sql`
-      SELECT c.estado, count(*)::int AS n
+    // Se cuenta con las MISMAS condiciones que usa la lista: si se escribieran
+    // aparte, el numero del filtro y lo que muestra al hacer clic se irian
+    // separando sin que nadie lo note.
+    const base = sql.join(condiciones, sql` AND `);
+    const vistas = ['sin_leer', 'abierto', 'pendiente', 'resuelto', 'activas', 'todas'];
+
+    const columnas = vistas.map(
+      (v) => sql`count(*) FILTER (WHERE ${condicionDeVista(v)})::int AS ${sql.raw(`"${v}"`)}`,
+    );
+
+    const { rows } = await this.db.execute<Record<string, number>>(sql`
+      SELECT ${sql.join(columnas, sql`, `)}
         FROM conversations c
         JOIN contacts ct ON ct.id = c.contact_id
-       WHERE ${sql.join(condiciones, sql` AND `)}
-       GROUP BY c.estado
+       WHERE ${base}
     `);
 
-    const conteo: Record<string, number> = { abierto: 0, pendiente: 0, resuelto: 0 };
-    for (const f of rows) conteo[f.estado] = f.n;
-    conteo.todas = conteo.abierto + conteo.pendiente + conteo.resuelto;
-
-    return conteo;
+    return rows[0] ?? Object.fromEntries(vistas.map((v) => [v, 0]));
   }
 
   /** Hilo paginado hacia atras: `antesDe` es el wa_timestamp del mas viejo ya cargado. */

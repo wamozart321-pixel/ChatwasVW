@@ -45,9 +45,10 @@ export default function App() {
   const [notas, setNotas] = useState<Nota[]>([]);
   const [asesores, setAsesores] = useState<Asesor[]>([]);
 
-  // Arranca en 'abierto' y no en 'todas': la bandeja tiene que mostrar lo que
-  // hay que atender. Con 'todas' se mezcla lo resuelto de meses con lo de hoy.
-  const [filtro, setFiltro] = useState('abierto');
+  // Arranca en 'activas': todo lo que no esta resuelto. Con 'todas' se mezcla
+  // el archivo de meses con lo de hoy, y con 'sin_leer' desaparece de la vista
+  // el chat que el asesor esta atendiendo en ese momento, apenas lo lee.
+  const [filtro, setFiltro] = useState('activas');
   const [asignado, setAsignado] = useState('todos');
   const [etiquetaFiltro, setEtiquetaFiltro] = useState('');
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);

@@ -1,11 +1,20 @@
 import { useState } from 'react';
 import type { Conversacion, Etiqueta } from '../api';
 
+/**
+ * Las solapas de la bandeja.
+ *
+ * "Abierto" no es lo mismo que "recien llegado": una conversacion nueva
+ * tambien esta abierta, pero nadie la miro todavia. Esas van en "Sin leer",
+ * que es la cola de lo que falta atender. Mezclarlas hacia que "Abierto"
+ * fuera un cajon donde caia todo.
+ */
 const ESTADOS = [
-  { id: 'todas', etiqueta: 'Todas' },
-  { id: 'abierto', etiqueta: 'Abierto' },
-  { id: 'pendiente', etiqueta: 'Pendiente' },
-  { id: 'resuelto', etiqueta: 'Resuelto' },
+  { id: 'sin_leer', etiqueta: 'Sin leer', ayuda: 'Llegaron mensajes y nadie los abrió' },
+  { id: 'abierto', etiqueta: 'Abierto', ayuda: 'Ya los leíste, se están atendiendo' },
+  { id: 'pendiente', etiqueta: 'Pendiente', ayuda: 'Esperando al proveedor o al cliente' },
+  { id: 'resuelto', etiqueta: 'Resuelto', ayuda: 'Terminadas' },
+  { id: 'activas', etiqueta: 'Activas', ayuda: 'Todo lo que no está resuelto' },
 ];
 
 const ASIGNACION = [
@@ -144,7 +153,7 @@ export default function ListaChats({
           ))}
         </div>
 
-        <div className="mt-2 flex gap-1.5">
+        <div className="mt-2 flex flex-wrap gap-1.5">
           {ESTADOS.map((f) => {
             // El numero al lado hace visible si el trabajo se esta acumulando.
             // Sin el, "Abierto" es una palabra y nadie sabe si son 3 o 300.
@@ -153,6 +162,7 @@ export default function ListaChats({
               <button
                 key={f.id}
                 onClick={() => onFiltro(f.id)}
+                title={f.ayuda}
                 className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
                   filtro === f.id
                     ? 'bg-marca-500 text-white'
