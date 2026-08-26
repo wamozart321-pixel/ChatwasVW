@@ -120,11 +120,24 @@ function crearBandeja() {
   bandeja = new Tray(iconoBase());
   bandeja.setContextMenu(
     Menu.buildFromTemplate([
+      // La version a la vista: cuando un asesor dice "no me anda", lo primero
+      // que hay que saber es que version tiene, y no habia forma de averiguarlo.
+      { label: `WhatsWV ${app.getVersion()}`, enabled: false },
+      { type: 'separator' },
       { label: 'Abrir WhatsWV', click: () => mostrarVentana() },
       { type: 'separator' },
       { label: 'Recargar', click: () => ventana?.reload() },
       { label: 'Buscar actualizaciones…', click: () => buscarActualizacion(true) },
       { label: 'Cambiar servidor…', click: () => pedirServidor() },
+      {
+        label: 'Copiar datos para soporte',
+        click: () => {
+          const { clipboard } = require('electron');
+          clipboard.writeText(
+            `WhatsWV ${app.getVersion()} · servidor ${leerConfig().servidor} · ${process.platform}`,
+          );
+        },
+      },
       { type: 'separator' },
       {
         label: 'Salir',
