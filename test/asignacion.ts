@@ -14,6 +14,17 @@ import { io, type Socket } from 'socket.io-client';
 import { configPostgres } from '../src/db/conexion';
 import { BASE, exigirEntornoSeguro } from './entorno';
 
+/**
+ * Techo de espera, no tiempo esperado.
+ *
+ * Cada entrante dispara una respuesta del bot que espera a que Meta la rechace
+ * —unos 2 s con el numero de prueba— y la cola del worker es serial. Corriendo
+ * las suites seguidas se acumula, y con 8 s las pruebas fallaban por lentas y
+ * no por rotas. Subirlo no las hace mas lentas: cortan apenas llega el evento.
+ */
+const ESPERA_MAX_MS = 25_000;
+
+
 try {
   process.loadEnvFile();
 } catch {
@@ -148,7 +159,7 @@ function conectar(token: string): Socket {
   return io(BASE, { auth: { token }, transports: ['websocket'], reconnection: false });
 }
 
-function esperar<T = any>(socket: Socket, evento: string, ms = 8000): Promise<T> {
+function esperar<T = any>(socket: Socket, evento: string, ms = ESPERA_MAX_MS): Promise<T> {
   return new Promise((resolver, rechazar) => {
     const t = setTimeout(() => rechazar(new Error(`no llegó '${evento}' en ${ms}ms`)), ms);
     socket.once(evento, (d: T) => {
@@ -215,7 +226,7 @@ async function esperarPresencia(
   token: string,
   nombre: string,
   esperado: boolean,
-  ms = 8000,
+  ms = ESPERA_MAX_MS,
 ): Promise<void> {
   const hasta = Date.now() + ms;
   while (Date.now() < hasta) {
@@ -260,7 +271,7 @@ async function esperarOtraConversacion(
 async function esperarAsignacion(
   token: string,
   convId: string,
-  ms = 6000,
+  ms = ESPERA_MAX_MS,
 ): Promise<string | null> {
   const hasta = Date.now() + ms;
   while (Date.now() < hasta) {

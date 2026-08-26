@@ -155,7 +155,14 @@ export default function App() {
 
   const cargarLista = useCallback(async () => {
     try {
-      const lista = await api.conversaciones(filtro, busqueda, asignado, etiquetaFiltro);
+      const lista = await api.conversaciones(
+        filtro,
+        busqueda,
+        asignado,
+        etiquetaFiltro,
+        // La abierta se pide aparte para que no se caiga de la lista al leerla.
+        seleccionadaRef.current ?? '',
+      );
       setConversaciones(lista);
       revisarNovedades(lista);
 

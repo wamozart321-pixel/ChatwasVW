@@ -12,6 +12,17 @@ import { createHmac } from 'node:crypto';
 import { io, type Socket } from 'socket.io-client';
 import { BASE, exigirEntornoSeguro } from './entorno';
 
+/**
+ * Techo de espera, no tiempo esperado.
+ *
+ * Cada entrante dispara una respuesta del bot que espera a que Meta la rechace
+ * —unos 2 s con el numero de prueba— y la cola del worker es serial. Corriendo
+ * las suites seguidas se acumula, y con 8 s las pruebas fallaban por lentas y
+ * no por rotas. Subirlo no las hace mas lentas: cortan apenas llega el evento.
+ */
+const ESPERA_MAX_MS = 25_000;
+
+
 try {
   process.loadEnvFile();
 } catch {
@@ -52,7 +63,7 @@ async function login(email: string, clave = process.env.CLAVE_PRUEBAS ?? 'cambia
 }
 
 /** Espera un evento con limite de tiempo, para que un fallo no cuelgue la prueba. */
-function esperar<T = any>(socket: Socket, evento: string, ms = 8000): Promise<T> {
+function esperar<T = any>(socket: Socket, evento: string, ms = ESPERA_MAX_MS): Promise<T> {
   return new Promise((resolver, rechazar) => {
     const t = setTimeout(() => rechazar(new Error(`no llego '${evento}' en ${ms}ms`)), ms);
     socket.once(evento, (d: T) => {

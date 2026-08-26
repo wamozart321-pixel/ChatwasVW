@@ -38,6 +38,7 @@ export class BandejaController {
     @Query('q') q?: string,
     @Query('asignado') asignado?: string,
     @Query('etiqueta') etiqueta?: string,
+    @Query('incluir') incluir?: string,
   ) {
     return this.bandeja.listar({
       estado,
@@ -45,6 +46,7 @@ export class BandejaController {
       asignado,
       etiqueta,
       asesorId: asesor.id,
+      incluir,
     });
   }
 

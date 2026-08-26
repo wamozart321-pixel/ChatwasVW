@@ -252,10 +252,16 @@ export const api = {
 
   equipo: () => pedir<MiembroEquipo[]>('/equipo'),
 
-  conversaciones: (estado: string, q: string, asignado: string, etiqueta = '') =>
+  /**
+   * `incluir` es la conversacion abierta: viene en la lista aunque deje de
+   * calzar en la solapa. Si no, en "Sin leer" el chat desaparece apenas se
+   * abre —porque abrirlo lo marca como leido— y se cierra solo.
+   */
+  conversaciones: (estado: string, q: string, asignado: string, etiqueta = '', incluir = '') =>
     pedir<Conversacion[]>(
       `/conversaciones?estado=${encodeURIComponent(estado)}&q=${encodeURIComponent(q)}` +
-        `&asignado=${encodeURIComponent(asignado)}&etiqueta=${encodeURIComponent(etiqueta)}`,
+        `&asignado=${encodeURIComponent(asignado)}&etiqueta=${encodeURIComponent(etiqueta)}` +
+        `&incluir=${encodeURIComponent(incluir)}`,
     ),
 
   detalle: (id: string) => pedir<DetalleConversacion>(`/conversaciones/${id}`),

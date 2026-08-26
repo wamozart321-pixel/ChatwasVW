@@ -82,8 +82,11 @@ export class BandejaService {
     asignado?: string;
     etiqueta?: string;
     asesorId: string;
+    /** La que el asesor tiene abierta: viene igual aunque deje de calzar en la solapa. */
+    incluir?: string;
   }): Promise<FilaBandeja[]> {
     const vista = opciones.estado ?? 'activas';
+    const abierta = opciones.incluir?.trim() || null;
     const busqueda = opciones.busqueda?.trim() || null;
     const etiqueta = opciones.etiqueta?.trim() || null;
     // 'mios' y 'sin_asignar' son las dos vistas que un asesor usa todo el día.
@@ -126,7 +129,14 @@ export class BandejaService {
          ORDER BY wa_timestamp DESC, id DESC
          LIMIT 1
       ) m ON true
-      WHERE ${condicionDeVista(vista)}
+      WHERE (
+              ${condicionDeVista(vista)}
+              -- La conversacion abierta se queda aunque deje de calzar. Sin
+              -- esto, en "Sin leer" el chat desaparecia debajo del asesor:
+              -- abrirlo lo marca como leido, deja de ser "sin leer", y el hilo
+              -- se cerraba solo en el momento en que se iba a contestar.
+              OR (${abierta}::uuid IS NOT NULL AND c.id = ${abierta}::uuid)
+            )
         AND (${busqueda}::text IS NULL
              OR ct.nombre ILIKE '%' || ${busqueda} || '%'
              OR ct.wa_id  ILIKE '%' || ${busqueda} || '%')
