@@ -403,6 +403,15 @@ async function main() {
     );
   });
 
+  /**
+   * Las etiquetas que crea esta suite, para borrarlas al terminar.
+   *
+   * Sin esto quedaban en la base para siempre: cada corrida dejaba cuatro
+   * (prueba-, filtro-, otra-, dup-) y despues de dos semanas habia 56 en la
+   * fila de filtros de la bandeja, todas basura.
+   */
+  const etiquetasCreadas: string[] = [];
+
   console.log('\netiquetas\n');
 
   await prueba('se crea, se aplica y aparece en la bandeja', async () => {
@@ -411,6 +420,7 @@ async function main() {
       method: 'POST',
       body: JSON.stringify({ nombre, color: 'amber' }),
     });
+    etiquetasCreadas.push(etiqueta.id);
     assert.ok(etiqueta.id, 'no devolvió la etiqueta creada');
 
     const { cuerpo: puestas } = await api(tokenAndres, `/conversaciones/${conv}/etiquetas`, {
@@ -443,6 +453,7 @@ async function main() {
       method: 'POST',
       body: JSON.stringify({ nombre, color: 'violet' }),
     });
+    etiquetasCreadas.push(etiqueta.id);
 
     // Se etiqueta una sola conversación de todas las que existen.
     await api(tokenAndres, `/conversaciones/${conv}/etiquetas`, {
@@ -471,6 +482,7 @@ async function main() {
       method: 'POST',
       body: JSON.stringify({ nombre: `otra-${Date.now().toString(36)}`, color: 'sky' }),
     });
+    etiquetasCreadas.push(segunda.cuerpo.id);
 
     await api(tokenAndres, `/conversaciones/${conv}/etiquetas`, {
       method: 'POST',
@@ -501,6 +513,7 @@ async function main() {
       method: 'POST',
       body: JSON.stringify({ nombre, color: 'sky' }),
     });
+    etiquetasCreadas.push(etiqueta.id);
 
     await api(tokenAndres, `/conversaciones/${conv}/etiquetas`, {
       method: 'POST',
@@ -755,6 +768,12 @@ async function main() {
       assert.equal(status, 400, `acepto: "${mal}"`);
     }
   });
+
+  // Se borran las etiquetas que creo esta corrida. Con tokenCarolina porque es
+  // supervisora: un asesor no puede borrar una etiqueta de todo el equipo.
+  for (const id of etiquetasCreadas) {
+    await api(tokenCarolina, `/etiquetas/${id}`, { method: 'DELETE' }).catch(() => undefined);
+  }
 
   console.log(fallos === 0 ? '\nTODO OK\n' : `\n${fallos} PRUEBA(S) FALLARON\n`);
   process.exit(fallos === 0 ? 0 : 1);

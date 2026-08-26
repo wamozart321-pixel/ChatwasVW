@@ -98,9 +98,18 @@ async function main() {
     [conservar],
   );
 
+  // Las etiquetas que dejaron las pruebas: nombre generado + sin usar por
+  // nadie. Nunca se toca una que este en uso, ni una con nombre escrito a mano.
+  const { rows: etiquetas } = await pool.query<{ n: number }>(`
+    SELECT count(*)::int AS n FROM tags t
+     WHERE t.nombre ~ '^(prueba|filtro|otra|dup)-[a-z0-9]{6,}$'
+       AND NOT EXISTS (SELECT 1 FROM conversation_tags ce WHERE ce.tag_id = t.id)
+  `);
+
   const { contactos, conversaciones, mensajes } = aBorrar[0];
   console.log(`\nSE BORRAN:\n`);
   console.log(`   ${contactos} contactos · ${conversaciones} conversaciones · ${mensajes} mensajes`);
+  console.log(`   ${etiquetas[0].n} etiquetas de prueba (nombre generado y sin usar)`);
 
   if (!deVerdad) {
     console.log(`
@@ -141,6 +150,14 @@ async function main() {
 
     const ct = await cliente.query(`DELETE FROM contacts WHERE wa_id <> ALL($1::text[])`, [conservar]);
     console.log(`   contacts            ${ct.rowCount}`);
+
+    // Al final, cuando ya no queda ninguna conversacion usandolas.
+    const et = await cliente.query(`
+      DELETE FROM tags t
+       WHERE t.nombre ~ '^(prueba|filtro|otra|dup)-[a-z0-9]{6,}$'
+         AND NOT EXISTS (SELECT 1 FROM conversation_tags ce WHERE ce.tag_id = t.id)
+    `);
+    console.log(`   tags                ${et.rowCount}`);
 
     await cliente.query('COMMIT');
     console.log('\nlisto.\n');

@@ -52,6 +52,12 @@ export class OperacionController {
     return this.operacion.crearEtiqueta(body?.nombre ?? '', body?.color ?? 'slate');
   }
 
+  /** Borra la etiqueta del catalogo entero. Solo supervisores y admins. */
+  @Delete('etiquetas/:tagId')
+  borrarEtiqueta(@Param('tagId') tagId: string, @AsesorActual() asesor: Asesor) {
+    return this.operacion.borrarEtiqueta(tagId, asesor);
+  }
+
   @Get('conversaciones/:id/etiquetas')
   etiquetasDe(@Param('id') id: string) {
     return this.operacion.etiquetasDe(id);

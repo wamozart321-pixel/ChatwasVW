@@ -218,6 +218,9 @@ export const api = {
       body: JSON.stringify({ telefono, nombre }),
     }),
 
+  borrarEtiqueta: (tagId: string) =>
+    pedir<{ ok: boolean; quitadaDe: number }>(`/etiquetas/${tagId}`, { method: 'DELETE' }),
+
   conteoEstados: (asignado: string, q: string, etiqueta: string) =>
     pedir<Record<string, number>>(
       `/conteo-estados?asignado=${asignado}&q=${encodeURIComponent(q)}&etiqueta=${etiqueta}`,

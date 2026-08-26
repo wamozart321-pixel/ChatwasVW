@@ -82,6 +82,8 @@ export default function ListaChats({
   onSeleccionar,
   onNuevoChat,
   conteo,
+  puedeBorrarEtiquetas,
+  onBorrarEtiqueta,
 }: {
   conversaciones: Conversacion[];
   seleccionada: string | null;
@@ -98,6 +100,8 @@ export default function ListaChats({
   onSeleccionar: (id: string) => void;
   onNuevoChat: () => void;
   conteo: Record<string, number> | null;
+  puedeBorrarEtiquetas: boolean;
+  onBorrarEtiqueta: (id: string, nombre: string) => void;
 }) {
   const sinLeer = conversaciones.reduce((n, c) => n + (c.noLeidos > 0 ? 1 : 0), 0);
   const [verTodasEtiquetas, setVerTodasEtiquetas] = useState(false);
@@ -186,18 +190,35 @@ export default function ListaChats({
             {etiquetasVisibles.map((e) => {
               const activa = etiquetaFiltro === e.id;
               return (
-                <button
+                <span
                   key={e.id}
-                  // Volver a tocar la misma la quita: es un filtro, no un modo.
-                  onClick={() => onEtiquetaFiltro(activa ? '' : (e.id ?? ''))}
-                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition ${
+                  className={`group inline-flex items-center rounded text-[10px] font-medium transition ${
                     activa
                       ? 'bg-slate-800 text-white'
                       : (COLORES_ETIQUETA[e.color] ?? COLORES_ETIQUETA.slate)
                   }`}
                 >
-                  {e.nombre}
-                </button>
+                  <button
+                    // Volver a tocar la misma la quita: es un filtro, no un modo.
+                    onClick={() => onEtiquetaFiltro(activa ? '' : (e.id ?? ''))}
+                    className="px-1.5 py-0.5"
+                  >
+                    {e.nombre}
+                  </button>
+
+                  {/* La × aparece al pasar el mouse y sólo para quien puede
+                      borrarla. Un asesor no debería poder sacarle una etiqueta
+                      a todas las conversaciones del equipo de un clic. */}
+                  {puedeBorrarEtiquetas && (
+                    <button
+                      onClick={() => onBorrarEtiqueta(e.id ?? '', e.nombre)}
+                      title={`Borrar la etiqueta "${e.nombre}" de todo el equipo`}
+                      className="hidden pr-1.5 opacity-60 hover:opacity-100 group-hover:inline"
+                    >
+                      ×
+                    </button>
+                  )}
+                </span>
               );
             })}
 

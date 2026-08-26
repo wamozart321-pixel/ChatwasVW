@@ -320,6 +320,26 @@ export default function App() {
    * Manda una ubicación. El servidor resuelve el enlace de Maps: los cortos
    * hay que seguirlos y Google no manda cabeceras CORS para hacerlo desde acá.
    */
+  /** Borra una etiqueta del catálogo. Se la saca a todo el equipo. */
+  async function borrarEtiqueta(id: string, nombre: string) {
+    if (!confirm(`¿Borrar la etiqueta "${nombre}"? Se le quita a todas las conversaciones.`)) {
+      return;
+    }
+
+    try {
+      const r = await api.borrarEtiqueta(id);
+      setAviso(
+        r.quitadaDe > 0
+          ? `Etiqueta "${nombre}" borrada; se quitó de ${r.quitadaDe} conversaciones`
+          : `Etiqueta "${nombre}" borrada`,
+      );
+      if (etiquetaFiltro === id) setEtiquetaFiltro('');
+      api.etiquetas().then(setEtiquetas).catch(() => undefined);
+    } catch (e) {
+      setAviso(e instanceof ErrorApi ? e.message : 'No se pudo borrar la etiqueta');
+    }
+  }
+
   async function enviarUbicacion(datos: {
     latitud?: number;
     longitud?: number;
@@ -517,6 +537,8 @@ export default function App() {
           asesorId={asesor.id}
           onNuevoChat={() => setVerNuevoChat(true)}
           conteo={conteo}
+          puedeBorrarEtiquetas={asesor.rol !== 'asesor'}
+          onBorrarEtiqueta={borrarEtiqueta}
           etiquetas={etiquetas}
           etiquetaFiltro={etiquetaFiltro}
           onFiltro={setFiltro}

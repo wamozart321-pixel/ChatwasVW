@@ -1,4 +1,11 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Asesor } from '../auth/auth.service';
 import { DB, type Database } from '../db/db.module';
@@ -42,6 +49,8 @@ const SIN_RESPONDER = sql`
 
 @Injectable()
 export class OperacionService {
+  private readonly log = new Logger(OperacionService.name);
+
   constructor(
     @Inject(DB) private readonly db: Database,
     private readonly realtime: RealtimeGateway,
@@ -120,6 +129,37 @@ export class OperacionService {
       .returning();
 
     return fila;
+  }
+
+  /**
+   * Borra una etiqueta del catalogo y de todas las conversaciones que la tengan.
+   *
+   * Solo supervisores y admins: un asesor puede quitarle una etiqueta a SU
+   * conversacion, pero borrar la etiqueta se la saca a todo el equipo de todas
+   * las conversaciones a la vez, y eso no se deshace.
+   */
+  async borrarEtiqueta(tagId: string, asesor: Asesor) {
+    if (asesor.rol === 'asesor') {
+      throw new ForbiddenException('solo un supervisor puede borrar una etiqueta');
+    }
+
+    const [etiqueta] = await this.db
+      .select({ id: tags.id, nombre: tags.nombre })
+      .from(tags)
+      .where(eq(tags.id, tagId))
+      .limit(1);
+
+    if (!etiqueta) throw new NotFoundException('esa etiqueta no existe');
+
+    const quitadas = await this.db
+      .delete(conversationTags)
+      .where(eq(conversationTags.tagId, tagId))
+      .returning({ id: conversationTags.conversationId });
+
+    await this.db.delete(tags).where(eq(tags.id, tagId));
+
+    this.log.log(`${asesor.email} borro la etiqueta "${etiqueta.nombre}" (${quitadas.length} usos)`);
+    return { ok: true, quitadaDe: quitadas.length };
   }
 
   etiquetasDe(conversationId: string) {
