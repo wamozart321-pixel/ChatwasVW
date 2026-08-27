@@ -15,9 +15,13 @@ const ejecutar = promisify(execFile);
  * nota de voz cuando el audio es OGG con codec Opus — con cualquier otro
  * formato le llega al cliente como un archivo de audio suelto.
  *
- * La conversion es barata porque el webm que graba el navegador YA lleva Opus
- * adentro: solo cambia el envase. `-c:a copy` no recodifica, asi que no hay
- * perdida de calidad y tarda milisegundos, no segundos.
+ * Se RECODIFICA en vez de solo cambiar el envase. La copia de flujo es mas
+ * rapida y no pierde calidad, pero depende de que el webm de entrada este bien
+ * formado, y el que produce MediaRecorder no lo esta: sale como un flujo en
+ * vivo, sin duracion en la cabecera. Meta rechazaba el resultado con
+ * «uploaded with mimetype as audio/ogg, however on processing it is of type
+ * application/octet-stream». Recodificar cuesta decimas de segundo en una nota
+ * de voz y produce un OGG canonico que Meta acepta siempre.
  *
  * Si ffmpeg no esta instalado devuelve null y el que llama manda el archivo
  * como venga: llega como audio igual, sin la onda. Es peor, pero es mucho mejor
@@ -60,15 +64,40 @@ export async function aNotaDeVoz(datos: Buffer): Promise<Buffer | null> {
         '-hide_banner',
         '-loglevel', 'error',
         '-i', entrada,
-        // Copiar el flujo: el Opus ya esta ahi dentro, solo cambia el envase.
-        '-c:a', 'copy',
+        '-vn',
+        // Sin los metadatos del webm y arrancando el audio en cero.
+        //
+        // Lo segundo es lo que costo encontrar: MediaRecorder empieza a contar
+        // en un instante distinto de cero, y ffmpeg arrastraba ese desfase al
+        // OGG (start_pts=576 en vez de 0). Meta acepta la subida, acepta el
+        // envio, y recien despues avisa por webhook que fallo con
+        // «on processing it is of type application/octet-stream» — un mensaje
+        // que no tiene nada que ver con la causa. El mismo archivo con el
+        // tiempo normalizado se entrega sin problema.
+        '-map_metadata', '-1',
+        '-af', 'aresample=async=1:first_pts=0',
+        '-c:a', 'libopus',
+        // Parametros de voz, no de musica: mono, 32 kbps y el modo 'voip' de
+        // Opus. Una nota de voz de un minuto pesa ~240 KB en vez de un mega.
+        '-ac', '1',
+        '-ar', '48000',
+        '-b:a', '32k',
+        '-application', 'voip',
+        '-f', 'ogg',
         salida,
       ],
-      { timeout: 30_000 },
+      { timeout: 60_000 },
     );
 
     const convertido = await readFile(salida);
-    return convertido.length > 0 ? convertido : null;
+    if (convertido.length === 0) return null;
+
+    // Que de verdad sea un OGG: si ffmpeg escribiera cualquier otra cosa,
+    // Meta lo rechaza con un error que no dice nada util. Los cuatro primeros
+    // bytes de todo archivo OGG son 'OggS'.
+    if (convertido.subarray(0, 4).toString('ascii') !== 'OggS') return null;
+
+    return convertido;
   } catch {
     return null;
   } finally {

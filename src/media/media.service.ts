@@ -90,6 +90,9 @@ export class MediaService {
     // ya viene adentro del webm, asi que solo cambia el envase.
     if (esWebmDeVoz(mimetype)) {
       const ogg = await aNotaDeVoz(buffer);
+      this.log.log(
+        `nota de voz: ${mimetype} ${buffer.length} B -> ${ogg ? `ogg ${ogg.length} B` : 'FALLO'}`,
+      );
       if (ogg) {
         buffer = ogg;
         mimetype = MIME_NOTA_DE_VOZ;
@@ -111,6 +114,6 @@ export class MediaService {
     // vence a los 30 días y el archivo dejaría de verse.
     const ruta = await this.almacen.guardar(buffer, mimetype, originalname);
 
-    return { tipo, mediaId, ruta, tamano: buffer.length };
+    return { tipo, mediaId, ruta, tamano: buffer.length, mime: mimetype, nombre: originalname };
   }
 }

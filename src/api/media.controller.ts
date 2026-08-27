@@ -101,8 +101,11 @@ export class MediaController {
       caption,
       media: {
         url: subido.ruta,
-        mime: archivo.mimetype,
-        nombre: archivo.originalname,
+        // Los de `subido`, no los del archivo original: una nota de voz se
+        // convierte a OGG antes de enviarse, y guardar el mime de entrada dejaba
+        // el hilo diciendo "webm" sobre un archivo que ya era ogg.
+        mime: subido.mime,
+        nombre: subido.nombre,
         tamano: subido.tamano,
       },
       userId: asesor.id,
