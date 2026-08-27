@@ -45,7 +45,10 @@ echo "==> actualizando el sistema"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get upgrade -y -qq
-apt-get install -y -qq curl ca-certificates gnupg ufw debian-keyring debian-archive-keyring apt-transport-https
+# ffmpeg va con el resto: las notas de voz se graban en webm porque Chromium
+# no sabe grabar OGG, y WhatsApp solo las muestra como nota de voz si son OGG
+# con Opus. La conversion es un cambio de envase, no una recodificacion.
+apt-get install -y -qq curl ca-certificates gnupg ufw debian-keyring debian-archive-keyring apt-transport-https ffmpeg
 
 # --- Node 22 LTS --------------------------------------------------------------
 if ! command -v node >/dev/null || [ "$(node -v | cut -d. -f1)" != "v22" ]; then

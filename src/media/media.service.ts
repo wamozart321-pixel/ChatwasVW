@@ -5,6 +5,7 @@ import { DB, type Database } from '../db/db.module';
 import { messages } from '../db/schema';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { GraphService } from '../whatsapp/graph.service';
+import { MIME_NOTA_DE_VOZ, aNotaDeVoz, esWebmDeVoz } from './audio';
 import { AlmacenService } from './almacen.service';
 
 /** Tipos que WhatsApp acepta enviar, según el mime del archivo. */
@@ -82,21 +83,34 @@ export class MediaService {
       throw new BadRequestException(`el archivo supera los ${env.MEDIA_MAX_MB} MB`);
     }
 
-    const tipo = tipoDeMime(archivo.mimetype);
-    const mediaId = await this.graph.subirMedia(
-      archivo.buffer,
-      archivo.mimetype,
-      archivo.originalname,
-    );
+    let { buffer, mimetype, originalname } = archivo;
+
+    // El navegador graba webm porque Chromium no puede grabar OGG, y WhatsApp
+    // solo dibuja la onda de nota de voz si el audio es OGG con Opus. El Opus
+    // ya viene adentro del webm, asi que solo cambia el envase.
+    if (esWebmDeVoz(mimetype)) {
+      const ogg = await aNotaDeVoz(buffer);
+      if (ogg) {
+        buffer = ogg;
+        mimetype = MIME_NOTA_DE_VOZ;
+        originalname = originalname.replace(/\.webm$/i, '') + '.ogg';
+      } else {
+        // Sin ffmpeg no se puede convertir, y webm no esta entre los formatos
+        // que WhatsApp acepta: mandarlo asi seria un rechazo seguro.
+        this.log.error('no se pudo convertir la nota de voz: ¿está ffmpeg instalado?');
+        throw new BadRequestException(
+          'No se pudo preparar la nota de voz. Probá adjuntando el audio como archivo.',
+        );
+      }
+    }
+
+    const tipo = tipoDeMime(mimetype);
+    const mediaId = await this.graph.subirMedia(buffer, mimetype, originalname);
 
     // Se guarda copia local para poder mostrarlo en el hilo: el id de Meta
     // vence a los 30 días y el archivo dejaría de verse.
-    const ruta = await this.almacen.guardar(
-      archivo.buffer,
-      archivo.mimetype,
-      archivo.originalname,
-    );
+    const ruta = await this.almacen.guardar(buffer, mimetype, originalname);
 
-    return { tipo, mediaId, ruta, tamano: archivo.buffer.length };
+    return { tipo, mediaId, ruta, tamano: buffer.length };
   }
 }

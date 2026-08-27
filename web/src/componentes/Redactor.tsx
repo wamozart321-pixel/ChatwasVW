@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { UbicacionNegocio } from '../api';
 import EnviarUbicacion from './EnviarUbicacion';
+import GrabarAudio from './GrabarAudio';
 
 function restante(vence: string | null): string {
   if (!vence) return '';
@@ -47,6 +48,7 @@ export default function Redactor({
 }) {
   const [texto, setTexto] = useState('');
   const [verUbicacion, setVerUbicacion] = useState(false);
+  const [grabando, setGrabando] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const archivoRef = useRef<HTMLInputElement>(null);
 
@@ -132,6 +134,30 @@ export default function Redactor({
         >
           📍
         </button>
+
+        <div className="relative mb-0.5">
+          <button
+            onClick={() => setGrabando(true)}
+            disabled={enviando}
+            title="Grabar una nota de voz"
+            className="rounded-xl border border-slate-200 px-3 py-2.5 text-slate-500 transition hover:bg-slate-50 disabled:opacity-40"
+          >
+            🎤
+          </button>
+
+          {grabando && (
+            <GrabarAudio
+              enviando={enviando}
+              onCerrar={() => setGrabando(false)}
+              onEnviar={(archivo) => {
+                setGrabando(false);
+                // Va por el mismo camino que un archivo adjunto: el servidor lo
+                // convierte a OGG y lo manda como audio.
+                onArchivo(archivo);
+              }}
+            />
+          )}
+        </div>
 
         {/* El mapa va en un modal a pantalla completa: en un globito de 300 px
             no se puede elegir un punto de una ciudad. */}
