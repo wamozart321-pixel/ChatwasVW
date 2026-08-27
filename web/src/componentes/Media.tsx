@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { descargarMedia, type Mensaje } from '../api';
+import ReproductorAudio from './ReproductorAudio';
 
 function pesoLegible(bytes: number | null): string {
   if (!bytes) return '';
@@ -161,7 +162,7 @@ export default function Media({ mensaje, mio }: { mensaje: Mensaje; mio: boolean
 
   if (mime.startsWith('audio/')) {
     // Las notas de voz de WhatsApp llegan como audio/ogg; Chrome las reproduce.
-    return <audio src={url} controls className="w-56 max-w-full" />;
+    return <ReproductorAudio url={url} mio={mio} />;
   }
 
   return (

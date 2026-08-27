@@ -43,6 +43,33 @@ const COLORES_ETIQUETA: Record<string, string> = {
   violet: 'bg-violet-100 text-violet-700',
 };
 
+/**
+ * Un color fijo por cliente, sacado de su numero.
+ *
+ * WhatsApp no da la foto de perfil del cliente: la Cloud API solo manda el
+ * numero y a veces el nombre, y no hay endpoint para pedirla. Como todos los
+ * circulos grises se ven iguales, cada numero recibe siempre el mismo color,
+ * que es lo que permite reconocer una conversacion de reojo en la lista.
+ */
+const COLORES_AVATAR = [
+  'bg-red-100 text-red-700',
+  'bg-orange-100 text-orange-700',
+  'bg-amber-100 text-amber-700',
+  'bg-emerald-100 text-emerald-700',
+  'bg-teal-100 text-teal-700',
+  'bg-sky-100 text-sky-700',
+  'bg-indigo-100 text-indigo-700',
+  'bg-violet-100 text-violet-700',
+  'bg-pink-100 text-pink-700',
+  'bg-slate-200 text-slate-600',
+];
+
+function colorDe(telefono: string): string {
+  let suma = 0;
+  for (const c of telefono) suma = (suma * 31 + c.charCodeAt(0)) % 100_000;
+  return COLORES_AVATAR[suma % COLORES_AVATAR.length]!;
+}
+
 function iniciales(nombre: string | null, telefono: string): string {
   if (!nombre) return telefono.slice(-2);
   return nombre
@@ -292,7 +319,11 @@ export default function ListaChats({
               }`}
             >
               <div className="relative shrink-0">
-                <div className="flex size-10 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600">
+                <div
+                  className={`flex size-10 items-center justify-center rounded-full text-xs font-semibold ${colorDe(
+                    c.telefono,
+                  )}`}
+                >
                   {iniciales(c.contacto, c.telefono)}
                 </div>
                 {/* Punto ámbar: la ventana de 24 h está cerrada, sólo plantilla. */}

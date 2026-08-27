@@ -323,6 +323,20 @@ export default function App() {
 
   // --- acciones ------------------------------------------------------------
 
+  /** Nota de voz: va directo, sin epígrafe. */
+  async function enviarAudio(archivo: File) {
+    if (!seleccionada) return;
+    setEnviando(true);
+    setAviso('');
+    try {
+      await api.enviarArchivo(seleccionada, archivo);
+    } catch (e) {
+      setAviso(e instanceof ErrorApi ? e.message : 'No se pudo enviar la nota de voz');
+    } finally {
+      setEnviando(false);
+    }
+  }
+
   /**
    * Manda una ubicación. El servidor resuelve el enlace de Maps: los cortos
    * hay que seguirlos y Google no manda cabeceras CORS para hacerlo desde acá.
@@ -666,6 +680,7 @@ export default function App() {
                 enviando={enviando}
                 onEnviar={enviar}
                 onArchivo={setArchivoPendiente}
+                onAudio={enviarAudio}
                 onPlantilla={() => setVerPlantillas(true)}
                 onUbicacion={enviarUbicacion}
                 ubicacionNegocio={ubicacionNegocio}

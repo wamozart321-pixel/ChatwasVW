@@ -23,6 +23,7 @@ export default function Redactor({
   enviando,
   onEnviar,
   onArchivo,
+  onAudio,
   onPlantilla,
   onUbicacion,
   ubicacionNegocio,
@@ -34,6 +35,7 @@ export default function Redactor({
   enviando: boolean;
   onEnviar: (texto: string) => void;
   onArchivo: (archivo: File) => void;
+  onAudio: (archivo: File) => void;
   onPlantilla: () => void;
   onUbicacion: (datos: {
     latitud?: number;
@@ -151,9 +153,10 @@ export default function Redactor({
               onCerrar={() => setGrabando(false)}
               onEnviar={(archivo) => {
                 setGrabando(false);
-                // Va por el mismo camino que un archivo adjunto: el servidor lo
-                // convierte a OGG y lo manda como audio.
-                onArchivo(archivo);
+                // Directo, sin pasar por la pantalla de epígrafe: una nota de
+                // voz no lleva texto, y en el grabador ya se escuchó antes de
+                // mandarla. Pedir un pie de foto ahí es un paso de más.
+                onAudio(archivo);
               }}
             />
           )}
