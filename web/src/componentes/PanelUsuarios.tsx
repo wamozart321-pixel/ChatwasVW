@@ -138,7 +138,7 @@ export default function PanelUsuarios({
         <div>
           <h1 className="text-base font-semibold text-slate-900">Usuarios</h1>
           <p className="text-xs text-slate-500">
-            Crear, cambiar claves y dar de baja. Sólo lo ven los administradores.
+            Crear, cambiar claves, dar de baja y borrar. Sólo lo ven los administradores.
           </p>
         </div>
         <button
@@ -329,8 +329,12 @@ export default function PanelUsuarios({
                       {u.activo ? 'Dar de baja' : 'Reactivar'}
                     </button>
 
-                    {/* Borrar va aparte y discreto: dar de baja es lo que casi
-                        siempre corresponde, y esto no se deshace. */}
+                    {/*
+                      Borrar tiene su propio botón, no un ícono apagado: una
+                      cuenta que ya no se usa ocupa lugar en la lista y hay que
+                      poder sacarla. Lo que evita el accidente no es esconder el
+                      botón, es que pida la contraseña.
+                    */}
                     <button
                       onClick={() => setBorrando(u)}
                       disabled={ocupado || u.id === yo.id}
@@ -339,9 +343,9 @@ export default function PanelUsuarios({
                           ? 'No podés borrarte a vos mismo'
                           : 'Borrar definitivamente'
                       }
-                      className="rounded-lg px-1.5 py-1 text-xs text-slate-300 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-30"
+                      className="rounded-lg border border-red-200 px-2.5 py-1 text-xs text-red-600 transition hover:bg-red-600 hover:text-white disabled:opacity-40"
                     >
-                      🗑
+                      Borrar
                     </button>
                   </div>
                 </div>
@@ -394,8 +398,10 @@ export default function PanelUsuarios({
         )}
 
         <p className="mt-4 text-xs text-slate-500">
-          Dar de baja no borra nada: el historial sigue mostrando quién respondió cada mensaje, y
-          las conversaciones que tenía encima vuelven a la cola para que alguien las tome.
+          <span className="font-medium">Dar de baja</span> no borra nada: no puede entrar más,
+          pero el historial sigue mostrando quién respondió cada mensaje.{' '}
+          <span className="font-medium">Borrar</span> lo saca de la lista para siempre; el
+          historial que tuviera queda sin autor. Las dos devuelven sus conversaciones a la cola.
         </p>
       </div>
     </div>
