@@ -1,11 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, sesion, type Asesor } from '../api';
 
 export default function Login({ onEntrar }: { onEntrar: (asesor: Asesor) => void }) {
-  const [email, setEmail] = useState('');
+  // Arranca con el último que entró en esta máquina. Se guarda sólo el correo:
+  // la clave no se recuerda nunca.
+  const [email, setEmail] = useState(sesion.ultimoEmail());
   const [clave, setClave] = useState('');
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
+  const claveRef = useRef<HTMLInputElement>(null);
+
+  // Si ya sabemos quién es, el cursor va directo a la contraseña.
+  useEffect(() => {
+    if (sesion.ultimoEmail()) claveRef.current?.focus();
+  }, []);
 
   async function entrar(e: React.FormEvent) {
     e.preventDefault();
@@ -14,6 +22,9 @@ export default function Login({ onEntrar }: { onEntrar: (asesor: Asesor) => void
     try {
       const { token, asesor } = await api.login(email.trim(), clave);
       sesion.guardar(token);
+      // Recién al entrar bien: recordar un correo mal escrito sería peor que
+      // no recordar ninguno.
+      sesion.recordarEmail(email.trim());
       onEntrar(asesor);
     } catch (err: any) {
       setError(err?.message ?? 'No se pudo entrar');
@@ -41,7 +52,7 @@ export default function Login({ onEntrar }: { onEntrar: (asesor: Asesor) => void
         <label className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
         <input
           type="email"
-          autoFocus
+          autoFocus={!sesion.ultimoEmail()}
           autoComplete="username"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -51,6 +62,7 @@ export default function Login({ onEntrar }: { onEntrar: (asesor: Asesor) => void
 
         <label className="mb-1.5 block text-sm font-medium text-slate-700">Contraseña</label>
         <input
+          ref={claveRef}
           type="password"
           autoComplete="current-password"
           value={clave}
@@ -68,8 +80,22 @@ export default function Login({ onEntrar }: { onEntrar: (asesor: Asesor) => void
           {cargando ? 'Entrando…' : 'Entrar'}
         </button>
 
+        {sesion.ultimoEmail() && (
+          <button
+            type="button"
+            onClick={() => {
+              sesion.olvidarEmail();
+              setEmail('');
+              setClave('');
+            }}
+            className="mt-3 w-full text-center text-[11px] text-slate-400 underline underline-offset-2 hover:text-slate-600"
+          >
+            No sos vos? Entrar con otra cuenta
+          </button>
+        )}
+
         <p className="mt-4 text-center text-[11px] text-slate-400">
-          Las cuentas las crea un administrador desde la terminal
+          Las cuentas las crea un administrador
         </p>
       </form>
     </div>

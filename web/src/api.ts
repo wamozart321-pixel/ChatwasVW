@@ -148,10 +148,23 @@ export interface MiembroEquipo {
 
 const TOKEN = 'whatswv:token';
 
+/**
+ * El ultimo usuario que entro en esta maquina.
+ *
+ * Solo el correo, nunca la clave: al asesor le ahorra escribirlo cada manana
+ * y no guarda nada que sirva para entrar. Sobrevive al 'Salir' a proposito —
+ * salir es cerrar la sesion, no olvidar quien sos.
+ */
+const ULTIMO_EMAIL = 'whatswv.ultimo_email';
+
 export const sesion = {
   token: () => localStorage.getItem(TOKEN),
   guardar: (v: string) => localStorage.setItem(TOKEN, v),
   borrar: () => localStorage.removeItem(TOKEN),
+
+  ultimoEmail: () => localStorage.getItem(ULTIMO_EMAIL) ?? '',
+  recordarEmail: (v: string) => localStorage.setItem(ULTIMO_EMAIL, v),
+  olvidarEmail: () => localStorage.removeItem(ULTIMO_EMAIL),
 };
 
 export interface Usuario {
