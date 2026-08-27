@@ -261,6 +261,97 @@ async function main() {
     body: JSON.stringify({ activo: false }),
   });
 
+  console.log('\nborrar de verdad');
+
+  await prueba('sin la clave correcta no borra', async () => {
+    // Un panel abierto en una maquina sin bloquear no deberia alcanzar para
+    // vaciar el equipo. Volver a pedir la clave corta ese camino.
+    const datos = nuevoUsuario();
+    const creado = await api(admin, '/api/admin/usuarios', {
+      method: 'POST',
+      body: JSON.stringify(datos),
+    });
+
+    for (const clave of ['', 'la-que-no-es', ADMIN_CLAVE + 'x']) {
+      const r = await api(admin, `/api/admin/usuarios/${creado.cuerpo.id}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ clave }),
+      });
+      assert.equal(r.status, 403, `borro con la clave "${clave}"`);
+    }
+
+    // Y de verdad sigue estando, no solo respondio feo.
+    const lista = (await api(admin, '/api/admin/usuarios')).cuerpo;
+    assert.ok(
+      lista.some((u: any) => u.id === creado.cuerpo.id),
+      'lo borro pese a rechazar la clave',
+    );
+
+    // limpieza
+    await api(admin, `/api/admin/usuarios/${creado.cuerpo.id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ clave: ADMIN_CLAVE }),
+    });
+  });
+
+  await prueba('con la clave correcta lo borra y desaparece', async () => {
+    const datos = nuevoUsuario();
+    const creado = await api(admin, '/api/admin/usuarios', {
+      method: 'POST',
+      body: JSON.stringify(datos),
+    });
+
+    const r = await api(admin, `/api/admin/usuarios/${creado.cuerpo.id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ clave: ADMIN_CLAVE }),
+    });
+    assert.equal(r.status, 200);
+
+    const lista = (await api(admin, '/api/admin/usuarios')).cuerpo;
+    assert.equal(
+      lista.some((u: any) => u.id === creado.cuerpo.id),
+      false,
+      'sigue en la lista',
+    );
+    assert.equal(await login(datos.email, datos.clave), null, 'todavia puede entrar');
+  });
+
+  await prueba('avisa que se pierde antes de borrar', async () => {
+    // El numero hay que verlo ANTES: borrar deja anonimo el rastro del usuario
+    // y despues no se recupera.
+    const lista = (await api(admin, '/api/admin/usuarios')).cuerpo;
+    const alguien = lista.find((u: any) => u.email === ASESOR_EMAIL);
+
+    const r = await api(admin, `/api/admin/usuarios/${alguien.id}/que-se-pierde`);
+    assert.equal(r.status, 200);
+    for (const campo of ['mensajes', 'notas', 'conversaciones']) {
+      assert.equal(typeof r.cuerpo[campo], 'number', `falta ${campo}`);
+    }
+  });
+
+  await prueba('nadie se borra a si mismo ni borra al ultimo admin', async () => {
+    const lista = (await api(admin, '/api/admin/usuarios')).cuerpo;
+    const yo = lista.find((u: any) => u.email === ADMIN_EMAIL);
+
+    const propio = await api(admin, `/api/admin/usuarios/${yo.id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ clave: ADMIN_CLAVE }),
+    });
+    assert.equal(propio.status, 403);
+    assert.ok(await login(ADMIN_EMAIL, ADMIN_CLAVE), 'se quedo afuera');
+  });
+
+  await prueba('un asesor no puede borrar a nadie', async () => {
+    const lista = (await api(admin, '/api/admin/usuarios')).cuerpo;
+    const alguien = lista.find((u: any) => u.email === ADMIN_EMAIL);
+
+    const r = await api(asesor, `/api/admin/usuarios/${alguien.id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ clave: ASESOR_CLAVE }),
+    });
+    assert.equal(r.status, 403);
+  });
+
   console.log(fallos === 0 ? '\nTODO OK\n' : `\n${fallos} PRUEBA(S) FALLARON\n`);
   process.exit(fallos === 0 ? 0 : 1);
 }

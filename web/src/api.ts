@@ -290,6 +290,18 @@ export const api = {
   rolDeUsuario: (id: string, rol: string) =>
     pedir(`/admin/usuarios/${id}/rol`, { method: 'POST', body: JSON.stringify({ rol }) }),
 
+  queSePierde: (id: string) =>
+    pedir<{ mensajes: number; notas: number; conversaciones: number }>(
+      `/admin/usuarios/${id}/que-se-pierde`,
+    ),
+
+  /** Borra de verdad. Pide la clave de quien lo hace: no se deshace. */
+  borrarUsuario: (id: string, clave: string) =>
+    pedir<{ ok: boolean; devueltasALaCola: number }>(`/admin/usuarios/${id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ clave }),
+    }),
+
   estadoDeUsuario: (id: string, activo: boolean) =>
     pedir<{ ok: boolean; devueltasALaCola: number }>(`/admin/usuarios/${id}/estado`, {
       method: 'POST',

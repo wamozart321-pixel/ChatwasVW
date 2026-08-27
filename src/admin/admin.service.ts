@@ -10,7 +10,7 @@ import {
 import { asc, eq, sql } from 'drizzle-orm';
 import { AsignacionService } from '../asignacion/asignacion.service';
 import type { Asesor } from '../auth/auth.service';
-import { hashear } from '../auth/password';
+import { hashear, verificar } from '../auth/password';
 import { DB, type Database } from '../db/db.module';
 import { users } from '../db/schema';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
@@ -156,6 +156,70 @@ export class AdminService {
     }
 
     this.log.log(`${quien.email} ${activo ? 'reactivó' : 'dio de baja'} a ${actual.email}`);
+    return { ok: true, devueltasALaCola: devueltas };
+  }
+
+  /**
+   * Que se pierde si se borra este usuario.
+   *
+   * Todas las referencias son ON DELETE SET NULL, asi que borrarlo no rompe
+   * nada — pero deja anonimo su rastro: los mensajes que envio dejan de decir
+   * quien fue, y las notas pierden su autor. Antes de borrar hay que ver el
+   * numero, porque despues no se puede recuperar.
+   */
+  async queSePierde(id: string) {
+    const usuario = await this.buscar(id);
+
+    const { rows } = await this.db.execute<{
+      mensajes: number;
+      notas: number;
+      conversaciones: number;
+    }>(sql`
+      SELECT
+        (SELECT count(*)::int FROM messages WHERE sent_by_user_id = ${id})        AS mensajes,
+        (SELECT count(*)::int FROM notes WHERE user_id = ${id})                   AS notas,
+        (SELECT count(*)::int FROM conversations
+          WHERE assigned_to = ${id} AND estado <> 'resuelto')                     AS conversaciones
+    `);
+
+    return { ...usuario, ...rows[0] };
+  }
+
+  /**
+   * Borra un usuario de verdad, no lo da de baja.
+   *
+   * Pide la clave de quien lo hace. No es tramite: un panel abierto en una
+   * maquina sin bloquear alcanza para que cualquiera borre al equipo entero, y
+   * esto no se deshace. Volver a pedir la clave corta ese camino.
+   *
+   * Para alguien que se fue del negocio conviene MAS la baja: conserva el
+   * historial de quien atendio a cada cliente. Borrar es para una cuenta creada
+   * por error.
+   */
+  async borrar(id: string, clave: string, quien: Asesor) {
+    if (id === quien.id) throw new ForbiddenException('no podés borrarte a vos mismo');
+
+    const usuario = await this.buscar(id);
+    if (usuario.rol === 'admin') await this.exigirOtroAdmin(id);
+
+    const [yo] = await this.db
+      .select({ passwordHash: users.passwordHash })
+      .from(users)
+      .where(eq(users.id, quien.id))
+      .limit(1);
+
+    if (!(await verificar(clave ?? '', yo?.passwordHash ?? null))) {
+      this.log.warn(`${quien.email} intento borrar a ${usuario.email} con la clave equivocada`);
+      throw new ForbiddenException('Tu contraseña no es correcta');
+    }
+
+    // Sus conversaciones vuelven a la cola antes de que desaparezca: si no,
+    // quedan sin dueño y sin nadie que se entere.
+    const devueltas = await this.asignacion.liberarTodasDe(id);
+
+    await this.db.delete(users).where(eq(users.id, id));
+
+    this.log.warn(`${quien.email} BORRO al usuario ${usuario.email}`);
     return { ok: true, devueltasALaCola: devueltas };
   }
 

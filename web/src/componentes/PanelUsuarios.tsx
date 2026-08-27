@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, ErrorApi, type Asesor, type Usuario } from '../api';
+import BorrarUsuario from './BorrarUsuario';
 
 /**
  * Administración de usuarios. Sólo la ve el rol `admin`.
@@ -54,6 +55,9 @@ export default function PanelUsuarios({
   /** Id del usuario al que se le está cambiando la clave. */
   const [cambiando, setCambiando] = useState<string | null>(null);
   const [claveNueva, setClaveNueva] = useState('');
+
+  /** El usuario que se está por borrar, o null. */
+  const [borrando, setBorrando] = useState<Usuario | null>(null);
 
   const cargar = () =>
     api
@@ -324,6 +328,21 @@ export default function PanelUsuarios({
                     >
                       {u.activo ? 'Dar de baja' : 'Reactivar'}
                     </button>
+
+                    {/* Borrar va aparte y discreto: dar de baja es lo que casi
+                        siempre corresponde, y esto no se deshace. */}
+                    <button
+                      onClick={() => setBorrando(u)}
+                      disabled={ocupado || u.id === yo.id}
+                      title={
+                        u.id === yo.id
+                          ? 'No podés borrarte a vos mismo'
+                          : 'Borrar definitivamente'
+                      }
+                      className="rounded-lg px-1.5 py-1 text-xs text-slate-300 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-30"
+                    >
+                      🗑
+                    </button>
                   </div>
                 </div>
 
@@ -361,6 +380,18 @@ export default function PanelUsuarios({
             ))
           )}
         </div>
+
+        {borrando && (
+          <BorrarUsuario
+            usuario={borrando}
+            onCerrar={() => setBorrando(null)}
+            onBorrado={(mensaje) => {
+              setBorrando(null);
+              setAviso(mensaje);
+              void cargar();
+            }}
+          />
+        )}
 
         <p className="mt-4 text-xs text-slate-500">
           Dar de baja no borra nada: el historial sigue mostrando quién respondió cada mensaje, y

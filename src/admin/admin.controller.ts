@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../auth/admin.guard';
 import { AsesorActual } from '../auth/asesor.decorator';
 import { AuthGuard } from '../auth/auth.guard';
@@ -26,6 +26,26 @@ export class AdminController {
   @Post('usuarios')
   crear(@Body() body: { nombre?: string; email?: string; clave?: string; rol?: string }) {
     return this.admin.crear(body);
+  }
+
+  /** Que se pierde si se borra: se muestra antes de confirmar. */
+  @Get('usuarios/:id/que-se-pierde')
+  queSePierde(@Param('id') id: string) {
+    return this.admin.queSePierde(id);
+  }
+
+  /**
+   * Borra un usuario de verdad. Pide la clave de quien lo hace: esto no se
+   * deshace y un panel abierto sin bloquear no deberia alcanzar para vaciar el
+   * equipo.
+   */
+  @Delete('usuarios/:id')
+  borrar(
+    @Param('id') id: string,
+    @Body() body: { clave?: string },
+    @AsesorActual() quien: Asesor,
+  ) {
+    return this.admin.borrar(id, body?.clave ?? '', quien);
   }
 
   @Post('usuarios/:id/clave')
