@@ -152,12 +152,30 @@ export default function Redactor({
       )}
 
       {/*
+        Grabando, la fila entera es el grabador: es lo que hace WhatsApp, y una
+        ventanita flotante sobre el teclado tapa justo lo que uno mira. Al
+        terminar el redactor vuelve como estaba.
+      */}
+      {grabando ? (
+        <GrabarAudio
+          enviando={enviando}
+          onCerrar={() => setGrabando(false)}
+          onEnviar={(archivo) => {
+            setGrabando(false);
+            // Directo, sin pasar por la pantalla de epígrafe: una nota de voz
+            // no lleva texto, y en el grabador ya se escuchó antes de mandarla.
+            // Pedir un pie de foto ahí es un paso de más.
+            onAudio(archivo);
+          }}
+        />
+      ) : (
+      /*
         En un celular los cuatro botones, el texto y Enviar no entran en una
         sola linea: el campo quedaba de cuatro letras de ancho. Asi que el texto
         se lleva su propio renglon y los botones van debajo. De md para arriba
         `md:contents` deshace el envoltorio y todo vuelve a una fila, como
         estaba.
-      */}
+      */
       <div className="flex flex-col gap-2 md:flex-row md:items-end">
         <div className="order-2 flex items-center gap-2 md:contents">
           <input
@@ -259,30 +277,14 @@ export default function Redactor({
             📍
           </button>
 
-          <div className="relative mb-0.5">
-            <button
-              onClick={() => setGrabando(true)}
-              disabled={enviando}
-              title="Grabar una nota de voz"
-              className="rounded-xl border border-slate-200 px-3 py-2.5 text-slate-500 transition hover:bg-slate-50 disabled:opacity-40"
-            >
-              🎤
-            </button>
-
-            {grabando && (
-              <GrabarAudio
-                enviando={enviando}
-                onCerrar={() => setGrabando(false)}
-                onEnviar={(archivo) => {
-                  setGrabando(false);
-                  // Directo, sin pasar por la pantalla de epígrafe: una nota de
-                  // voz no lleva texto, y en el grabador ya se escuchó antes de
-                  // mandarla. Pedir un pie de foto ahí es un paso de más.
-                  onAudio(archivo);
-                }}
-              />
-            )}
-          </div>
+          <button
+            onClick={() => setGrabando(true)}
+            disabled={enviando}
+            title="Grabar una nota de voz"
+            className="mb-0.5 rounded-xl border border-slate-200 px-3 py-2.5 text-slate-500 transition hover:bg-slate-50 disabled:opacity-40"
+          >
+            🎤
+          </button>
 
           {/* El mapa va en un modal a pantalla completa: en un globito de 300 px
               no se puede elegir un punto de una ciudad. */}
@@ -322,6 +324,7 @@ export default function Redactor({
           className="order-1 max-h-36 min-w-0 flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm outline-none focus:border-marca-500 focus:bg-white md:order-2"
         />
       </div>
+      )}
 
       {queda && (
         <p className="mt-1.5 text-[11px] text-slate-400">Ventana abierta · quedan {queda}</p>

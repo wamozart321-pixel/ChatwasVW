@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import ReproductorAudio from './ReproductorAudio';
 
 /**
- * Graba una nota de voz.
+ * Graba una nota de voz, en el lugar del campo de texto.
+ *
+ * Ocupa el renglón donde se escribe en vez de abrir una ventanita: es como lo
+ * hace WhatsApp, y en un celular una ventana flotante sobre el teclado tapa
+ * justo lo que uno está mirando. Al terminar, el redactor vuelve como estaba.
  *
  * Se graba en `audio/webm` porque Chromium no sabe grabar OGG — comprobado en
  * Chromium 150: `MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')` da
@@ -21,6 +26,9 @@ function comoReloj(segundos: number): string {
 /** Tope de duración. Más que esto nadie lo escucha, y pesa. */
 const MAXIMO_SEGUNDOS = 180;
 
+/** Barras del medidor en vivo. Menos que en la onda del reproductor: se mueven. */
+const BARRAS_VIVAS = 24;
+
 export default function GrabarAudio({
   enviando,
   onEnviar,
@@ -34,16 +42,65 @@ export default function GrabarAudio({
   const [segundos, setSegundos] = useState(0);
   const [error, setError] = useState('');
   const [urlPrevia, setUrlPrevia] = useState<string | null>(null);
+  const [niveles, setNiveles] = useState<number[]>(() => Array(BARRAS_VIVAS).fill(0));
 
   const grabadorRef = useRef<MediaRecorder | null>(null);
   const trozosRef = useRef<Blob[]>([]);
   const pistaRef = useRef<MediaStream | null>(null);
   const grabadoRef = useRef<Blob | null>(null);
+  const analisisRef = useRef<{ ctx: AudioContext; analizador: AnalyserNode } | null>(null);
+  const cuadroRef = useRef<number | null>(null);
 
   /** Corta el micrófono. Sin esto el navegador deja el indicador encendido. */
   function soltarMicrofono() {
     pistaRef.current?.getTracks().forEach((t) => t.stop());
     pistaRef.current = null;
+
+    if (cuadroRef.current !== null) cancelAnimationFrame(cuadroRef.current);
+    cuadroRef.current = null;
+
+    void analisisRef.current?.ctx.close().catch(() => undefined);
+    analisisRef.current = null;
+  }
+
+  /**
+   * El medidor que se mueve mientras se habla.
+   *
+   * Es la señal de que el micrófono está tomando algo. Sin esto, una nota
+   * grabada con el micrófono apagado se ve igual que una buena, y el asesor se
+   * entera recién cuando el cliente le dice que no se escucha nada.
+   */
+  function arrancarMedidor(pista: MediaStream) {
+    const Constructor =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Constructor) return;
+
+    const ctx = new Constructor();
+    const analizador = ctx.createAnalyser();
+    analizador.fftSize = 512;
+    ctx.createMediaStreamSource(pista).connect(analizador);
+    analisisRef.current = { ctx, analizador };
+
+    const muestras = new Uint8Array(analizador.fftSize);
+
+    const pintar = () => {
+      analizador.getByteTimeDomainData(muestras);
+
+      // Valor eficaz de la ventana: cuánta señal hay ahora mismo.
+      let suma = 0;
+      for (const v of muestras) {
+        const centrado = (v - 128) / 128;
+        suma += centrado * centrado;
+      }
+      const nivel = Math.min(1, Math.sqrt(suma / muestras.length) * 3);
+
+      // Las barras corren hacia la izquierda: la última es el instante actual.
+      setNiveles((prev) => [...prev.slice(1), nivel]);
+      cuadroRef.current = requestAnimationFrame(pintar);
+    };
+
+    cuadroRef.current = requestAnimationFrame(pintar);
   }
 
   useEffect(() => {
@@ -74,20 +131,23 @@ export default function GrabarAudio({
         };
 
         grabador.onstop = () => {
+          soltarMicrofono();
+
+          // Cancelar vacía los trozos: si no quedó nada, no hay nota que oír.
+          if (trozosRef.current.length === 0) return;
+
           const blob = new Blob(trozosRef.current, { type: 'audio/webm' });
           grabadoRef.current = blob;
           setUrlPrevia(URL.createObjectURL(blob));
           setEstado('listo');
-          soltarMicrofono();
         };
 
         grabador.start();
+        arrancarMedidor(pista);
         setEstado('grabando');
       } catch {
         if (!vivo) return;
-        setError(
-          'No se pudo usar el micrófono. Revisá que el navegador tenga permiso y que haya uno conectado.',
-        );
+        setError('No se pudo usar el micrófono. Revisá que el navegador tenga permiso.');
         setEstado('error');
       }
     })();
@@ -116,9 +176,20 @@ export default function GrabarAudio({
   }, [estado]);
 
   // La URL del audio se libera al desmontar: si no, queda en memoria.
-  useEffect(() => () => {
-    if (urlPrevia) URL.revokeObjectURL(urlPrevia);
-  }, [urlPrevia]);
+  useEffect(
+    () => () => {
+      if (urlPrevia) URL.revokeObjectURL(urlPrevia);
+    },
+    [urlPrevia],
+  );
+
+  function descartar() {
+    // Vaciar antes de parar: `onstop` mira esto para saber que se canceló.
+    trozosRef.current = [];
+    grabadorRef.current?.stop();
+    soltarMicrofono();
+    onCerrar();
+  }
 
   function enviar() {
     const blob = grabadoRef.current;
@@ -128,80 +199,86 @@ export default function GrabarAudio({
     onEnviar(new File([blob], nombre, { type: 'audio/webm' }));
   }
 
-  return (
-    <>
-      <div className="fixed inset-0 z-10" onClick={estado === 'grabando' ? undefined : onCerrar} />
-
-      <div className="absolute bottom-full left-0 z-20 mb-2 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
-        {estado === 'error' ? (
-          <>
-            <p className="text-xs leading-relaxed text-red-600">{error}</p>
-            <button
-              onClick={onCerrar}
-              className="mt-3 w-full rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
-            >
-              Cerrar
-            </button>
-          </>
-        ) : estado === 'pidiendo' ? (
-          <p className="py-3 text-center text-xs text-slate-400">Pidiendo el micrófono…</p>
-        ) : estado === 'grabando' ? (
-          <>
-            <div className="flex items-center gap-2">
-              <span className="size-2.5 animate-pulse rounded-full bg-red-500" />
-              <span className="font-mono text-sm text-slate-700">{comoReloj(segundos)}</span>
-              <span className="ml-auto text-[10px] text-slate-400">
-                máx {comoReloj(MAXIMO_SEGUNDOS)}
-              </span>
-            </div>
-
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={() => grabadorRef.current?.stop()}
-                className="flex-1 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-900"
-              >
-                ■ Detener
-              </button>
-              <button
-                onClick={() => {
-                  // Cancelar durante la grabación tira lo grabado: no se manda
-                  // nada y no queda un archivo a medias dando vueltas.
-                  trozosRef.current = [];
-                  grabadorRef.current?.stop();
-                  soltarMicrofono();
-                  onCerrar();
-                }}
-                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
-              >
-                Cancelar
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <p className="mb-2 text-[11px] text-slate-500">
-              Escuchala antes de enviar — después no se puede corregir.
-            </p>
-            {urlPrevia && <audio src={urlPrevia} controls className="w-full" />}
-
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={enviar}
-                disabled={enviando}
-                className="flex-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                Enviar
-              </button>
-              <button
-                onClick={onCerrar}
-                className="rounded-lg px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
-              >
-                Descartar
-              </button>
-            </div>
-          </>
-        )}
+  if (estado === 'error') {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2">
+        <p className="min-w-0 flex-1 text-xs text-red-700">{error}</p>
+        <button
+          onClick={onCerrar}
+          className="shrink-0 rounded-lg px-2 py-1 text-xs text-red-600 hover:bg-red-100"
+        >
+          Cerrar
+        </button>
       </div>
-    </>
+    );
+  }
+
+  if (estado === 'pidiendo') {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-400">
+        Pidiendo el micrófono…
+      </div>
+    );
+  }
+
+  if (estado === 'grabando') {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2">
+        <button
+          onClick={descartar}
+          title="Descartar"
+          className="shrink-0 rounded-lg px-1.5 py-1 text-slate-400 transition hover:bg-slate-200 hover:text-red-600"
+        >
+          🗑
+        </button>
+
+        <span className="size-2 shrink-0 animate-pulse rounded-full bg-red-500" />
+        <span className="shrink-0 font-mono text-xs tabular-nums text-slate-700">
+          {comoReloj(segundos)}
+        </span>
+
+        <div className="flex h-7 min-w-0 flex-1 items-center gap-[2px]">
+          {niveles.map((n, i) => (
+            <span
+              key={i}
+              style={{ height: `${Math.max(8, n * 100)}%` }}
+              className="w-full rounded-full bg-marca-400"
+            />
+          ))}
+        </div>
+
+        <button
+          onClick={() => grabadorRef.current?.stop()}
+          className="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-900"
+        >
+          ■ Listo
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2">
+      <button
+        onClick={onCerrar}
+        title="Descartar"
+        className="shrink-0 rounded-lg px-1.5 py-1 text-slate-400 transition hover:bg-slate-200 hover:text-red-600"
+      >
+        🗑
+      </button>
+
+      {/* La misma onda que va a ver el cliente, para escucharla antes de mandarla. */}
+      <div className="min-w-0 flex-1">
+        {urlPrevia && <ReproductorAudio url={urlPrevia} mio={false} />}
+      </div>
+
+      <button
+        onClick={enviar}
+        disabled={enviando}
+        className="shrink-0 rounded-lg bg-marca-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-marca-600 disabled:opacity-40"
+      >
+        Enviar
+      </button>
+    </div>
   );
 }

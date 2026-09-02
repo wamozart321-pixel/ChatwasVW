@@ -28,6 +28,7 @@ import { firmaValida } from '../src/whatsapp/signature';
 import { coordenadasDe, esEnlaceCorto } from '../src/messages/ubicacion';
 import { aE164 } from '../src/conversations/conversations.service';
 import { parsearDireccionCo } from '../src/messages/direccion-co';
+import { barrasDe } from '../web/src/componentes/onda';
 
 let fallos = 0;
 
@@ -492,6 +493,63 @@ async function main() {
       assert.equal(pideHumano(frase), true, `no detectó: "${frase}"`);
     }
     assert.equal(pideHumano('necesito pastillas de freno'), false);
+  });
+
+  console.log('\nonda de las notas de voz\n');
+
+  await prueba('la onda sigue la forma del audio', () => {
+    // Medio segundo en silencio y medio hablando: la onda tiene que quedar
+    // plana en la primera mitad y alta en la segunda. Es lo que hace que uno
+    // reconozca de un vistazo si la nota trae algo o se grabo en silencio.
+    const muestras = new Float32Array(48_000);
+    for (let i = 24_000; i < muestras.length; i++) {
+      muestras[i] = Math.sin((i / 48_000) * 2 * Math.PI * 440);
+    }
+
+    const barras = barrasDe(muestras, 10);
+    assert.ok(barras, 'no devolvio barras');
+    assert.equal(barras.length, 10);
+
+    const primeraMitad = barras.slice(0, 5);
+    const segundaMitad = barras.slice(5);
+
+    assert.ok(
+      Math.max(...primeraMitad) < 0.01,
+      `el silencio no quedo plano: ${JSON.stringify(primeraMitad)}`,
+    );
+    assert.ok(
+      Math.min(...segundaMitad) > 0.5,
+      `la parte con sonido quedo baja: ${JSON.stringify(segundaMitad)}`,
+    );
+  });
+
+  await prueba('la onda se normaliza: bajito se ve igual que fuerte', () => {
+    // Dos veces la misma senal, una a un decimo del volumen. La forma tiene que
+    // salir identica: lo que interesa es donde se hablo, no cuan fuerte.
+    const fuerte = new Float32Array(4_000);
+    const flojo = new Float32Array(4_000);
+    for (let i = 0; i < fuerte.length; i++) {
+      const v = Math.sin((i / 4_000) * 2 * Math.PI * 8);
+      fuerte[i] = v;
+      flojo[i] = v * 0.1;
+    }
+
+    const a = barrasDe(fuerte, 8);
+    const b = barrasDe(flojo, 8);
+    assert.ok(a && b);
+    for (let i = 0; i < a.length; i++) {
+      assert.ok(Math.abs(a[i]! - b[i]!) < 0.001, `la barra ${i} no coincide`);
+    }
+  });
+
+  await prueba('un audio mudo no dibuja onda', () => {
+    // Todo en cero no se puede normalizar: se devuelve null y el reproductor
+    // pinta una barra lisa en vez de dividir por cero.
+    assert.equal(barrasDe(new Float32Array(4_000), 8), null);
+  });
+
+  await prueba('un audio mas corto que las barras no rompe', () => {
+    assert.equal(barrasDe(new Float32Array(3), 40), null);
   });
 
   await db.close();
