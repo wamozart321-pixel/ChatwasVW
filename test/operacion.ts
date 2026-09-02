@@ -237,6 +237,46 @@ async function main() {
     assert.equal(r.status, 404);
   });
 
+  await prueba('una respuesta cita el mensaje al que contesta', async () => {
+    // La cita se guarda apuntando a NUESTRA fila, no al wamid de Meta: el hilo
+    // necesita saber quien lo dijo y que decia, y eso sale de la fila.
+    const { cuerpo: antes } = await api(tokenAndres, `/conversaciones/${conv}/mensajes`);
+    const original = antes.find((m: any) => m.direccion === 'in');
+    assert.ok(original, 'no hay ningun entrante al que responder');
+
+    // Meta rechaza el envio por la lista blanca del numero de prueba, pero la
+    // fila se escribe antes de llamar, que es lo que se mira aca.
+    await api(tokenAndres, `/conversaciones/${conv}/mensajes`, {
+      method: 'POST',
+      body: JSON.stringify({ texto: 'te respondo esto', respondeA: original.id }),
+    });
+
+    const { cuerpo: despues } = await api(tokenAndres, `/conversaciones/${conv}/mensajes`);
+    const respuesta = despues.find((m: any) => m.cuerpo === 'te respondo esto');
+
+    assert.ok(respuesta, 'no quedo la respuesta en el hilo');
+    assert.ok(respuesta.citado, 'la respuesta salio sin cita');
+    assert.equal(respuesta.citado.id, original.id, 'cita el mensaje equivocado');
+    assert.equal(respuesta.citado.cuerpo, original.cuerpo, 'la cita no trae el texto del original');
+    assert.equal(respuesta.citado.direccion, 'in');
+  });
+
+  await prueba('citar un mensaje inexistente no impide responder', async () => {
+    // Perder la cita es molesto; no poder contestarle al cliente lo es mucho
+    // mas. Asi que un id que no existe sale sin cita en vez de fallar.
+    const { cuerpo: hilo } = await api(tokenAndres, `/conversaciones/${conv}/mensajes`, {
+      method: 'POST',
+      body: JSON.stringify({
+        texto: 'sale igual',
+        respondeA: '00000000-0000-0000-0000-000000000000',
+      }),
+    }).then(() => api(tokenAndres, `/conversaciones/${conv}/mensajes`));
+
+    const suelta = hilo.find((m: any) => m.cuerpo === 'sale igual');
+    assert.ok(suelta, 'no se envio el mensaje');
+    assert.equal(suelta.citado, null, 'invento una cita');
+  });
+
   await prueba('el hilo marca cuáles tienen archivo', async () => {
     const { cuerpo } = await api(tokenAndres, `/conversaciones/${conv}/mensajes`);
     const conFoto = cuerpo.find((m: any) => m.id === messageId);

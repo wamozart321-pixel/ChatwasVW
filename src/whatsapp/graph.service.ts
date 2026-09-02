@@ -59,8 +59,23 @@ export class GraphService {
     return cuerpo as T;
   }
 
+  /**
+   * La cita, cuando el mensaje responde a otro.
+   *
+   * Meta la quiere como el wamid del mensaje citado. Basta con eso: el texto de
+   * la cita lo dibuja WhatsApp solo, en el telefono del cliente.
+   */
+  private contexto(respondeAWamid?: string | null) {
+    return respondeAWamid ? { context: { message_id: respondeAWamid } } : {};
+  }
+
   /** Envia texto libre. Solo funciona dentro de la ventana de 24h. */
-  async enviarTexto(a: string, cuerpo: string, previewUrl = true): Promise<string> {
+  async enviarTexto(
+    a: string,
+    cuerpo: string,
+    previewUrl = true,
+    respondeAWamid?: string | null,
+  ): Promise<string> {
     const r = await this.pedir<RespuestaEnvio>(`/${env.META_PHONE_NUMBER_ID}/messages`, {
       method: 'POST',
       body: JSON.stringify({
@@ -69,6 +84,7 @@ export class GraphService {
         to: a,
         type: 'text',
         text: { preview_url: previewUrl, body: cuerpo },
+        ...this.contexto(respondeAWamid),
       }),
     });
 
@@ -241,7 +257,7 @@ export class GraphService {
     a: string,
     tipo: string,
     mediaId: string,
-    opciones: { caption?: string; filename?: string } = {},
+    opciones: { caption?: string; filename?: string; respondeAWamid?: string | null } = {},
   ): Promise<string> {
     const contenido: Record<string, unknown> = { id: mediaId };
 
@@ -259,6 +275,7 @@ export class GraphService {
         to: a,
         type: tipo,
         [tipo]: contenido,
+        ...this.contexto(opciones.respondeAWamid),
       }),
     });
 

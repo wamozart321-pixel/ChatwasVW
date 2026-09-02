@@ -32,6 +32,8 @@ export class OutboundService {
     texto: string;
     userId?: string | null;
     previewUrl?: boolean;
+    /** Id de NUESTRA fila del mensaje citado, no el wamid de Meta. */
+    respondeA?: string | null;
   }) {
     const waId = normalizarTelefono(params.a);
     if (waId.length < 8) throw new BadRequestException('numero invalido');
@@ -52,12 +54,16 @@ export class OutboundService {
       });
     }
 
+    const citado = await this.citar(params.respondeA, conversacion.id);
+
     return this.despachar({
       conversationId: conversacion.id,
       tipo: 'text',
       cuerpo: params.texto,
       userId: params.userId ?? null,
-      enviar: () => this.graph.enviarTexto(waId, params.texto, params.previewUrl ?? true),
+      respondeA: citado.id,
+      enviar: () =>
+        this.graph.enviarTexto(waId, params.texto, params.previewUrl ?? true, citado.wamid),
     });
   }
 
@@ -132,6 +138,7 @@ export class OutboundService {
     caption?: string;
     media: { url: string; mime: string; nombre: string; tamano: number };
     userId?: string | null;
+    respondeA?: string | null;
   }) {
     const waId = normalizarTelefono(params.a);
     if (waId.length < 8) throw new BadRequestException('numero invalido');
@@ -148,6 +155,8 @@ export class OutboundService {
       });
     }
 
+    const citado = await this.citar(params.respondeA, conversacion.id);
+
     return this.despachar({
       conversationId: conversacion.id,
       tipo: params.tipo,
@@ -159,10 +168,12 @@ export class OutboundService {
       cuerpo: params.caption ?? (params.tipo === 'document' ? params.media.nombre : null),
       userId: params.userId ?? null,
       media: params.media,
+      respondeA: citado.id,
       enviar: () =>
         this.graph.enviarMedia(waId, params.tipo, params.mediaId, {
           caption: params.caption,
           filename: params.media.nombre,
+          respondeAWamid: citado.wamid,
         }),
     });
   }
@@ -196,6 +207,29 @@ export class OutboundService {
   }
 
   /**
+   * Resuelve la cita: de nuestro id al wamid que entiende Meta.
+   *
+   * Si el mensaje citado no existe, es de otra conversacion, o todavia no tiene
+   * wamid porque Meta no lo confirmo, se manda sin cita en vez de fallar. Que
+   * la respuesta salga importa mas que el adorno de la cita, y el asesor ya
+   * escribio el texto.
+   */
+  private async citar(
+    respondeA: string | null | undefined,
+    conversationId: string,
+  ): Promise<{ id: string | null; wamid: string | null }> {
+    if (!respondeA) return { id: null, wamid: null };
+
+    const wamid = await this.mensajes.wamidParaCitar(respondeA, conversationId);
+    if (!wamid) {
+      this.log.warn(`no se pudo citar el mensaje ${respondeA}: se envia sin cita`);
+      return { id: null, wamid: null };
+    }
+
+    return { id: respondeA, wamid };
+  }
+
+  /**
    * Fila optimista -> llamada a Meta -> confirmacion.
    * Se persiste ANTES de llamar para que la bandeja pueda pintar el mensaje al
    * instante (paso 2) y para que un envio fallido quede registrado, no perdido.
@@ -205,6 +239,7 @@ export class OutboundService {
     tipo: string;
     cuerpo: string | null;
     userId: string | null;
+    respondeA?: string | null;
     raw?: Record<string, unknown>;
     media?: { url: string; mime: string; nombre: string; tamano: number };
     ubicacionLat?: number;
@@ -223,14 +258,20 @@ export class OutboundService {
       mediaTamano: params.media?.tamano,
       ubicacionLat: params.ubicacionLat,
       ubicacionLon: params.ubicacionLon,
+      respondeA: params.respondeA ?? null,
     });
+
+    // La cita se resuelve una vez y viaja pegada a la fila: el hilo la trae en
+    // su SELECT, pero los avisos en vivo mandan la fila cruda y sin esto la
+    // respuesta aparece sin cita hasta que alguien recarga.
+    const citado = await this.mensajes.resumenCitado(params.respondeA);
 
     try {
       const waMessageId = await params.enviar();
       const confirmado = await this.mensajes.confirmarEnviado(fila.id, waMessageId);
       await this.conversaciones.marcarSalienteEn(params.conversationId);
 
-      this.realtime.mensajeNuevo(params.conversationId, confirmado);
+      this.realtime.mensajeNuevo(params.conversationId, { ...confirmado, citado });
       this.realtime.conversacionActualizada(params.conversationId);
 
       this.log.log(`saliente ${params.tipo} -> ${waMessageId}`);
@@ -243,7 +284,10 @@ export class OutboundService {
       });
       // Se empuja la fila YA marcada, no la de antes del error: si no, el
       // mensaje aparece en rojo pero sin decir por que fallo.
-      this.realtime.mensajeNuevo(params.conversationId, fallido ?? { ...fila, status: 'failed' });
+      this.realtime.mensajeNuevo(params.conversationId, {
+        ...(fallido ?? { ...fila, status: 'failed' }),
+        citado,
+      });
       this.realtime.conversacionActualizada(params.conversationId);
 
       this.log.error(`envio fallido (${err.code ?? '?'}): ${err.message}`);

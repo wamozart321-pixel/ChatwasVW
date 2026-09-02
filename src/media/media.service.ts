@@ -6,6 +6,7 @@ import { messages } from '../db/schema';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { GraphService } from '../whatsapp/graph.service';
 import { MIME_NOTA_DE_VOZ, aNotaDeVoz, esWebmDeVoz } from './audio';
+import { MIME_VIDEO, aH264, codecs, esVideo, yaSirve } from './video';
 import { AlmacenService } from './almacen.service';
 
 /** Tipos que WhatsApp acepta enviar, según el mime del archivo. */
@@ -78,9 +79,11 @@ export class MediaService {
 
   /** Sube un archivo a Meta y devuelve lo necesario para enviarlo. */
   async prepararSalida(archivo: { buffer: Buffer; mimetype: string; originalname: string }) {
-    const limite = env.MEDIA_MAX_MB * 1024 * 1024;
-    if (archivo.buffer.length > limite) {
-      throw new BadRequestException(`el archivo supera los ${env.MEDIA_MAX_MB} MB`);
+    // Un video se admite mas grande que el resto: se recomprime abajo, y el
+    // tope de WhatsApp se comprueba despues, sobre lo que de verdad va a salir.
+    const topeMB = esVideo(archivo.mimetype) ? env.MEDIA_VIDEO_MAX_MB : env.MEDIA_MAX_MB;
+    if (archivo.buffer.length > topeMB * 1024 * 1024) {
+      throw new BadRequestException(`el archivo supera los ${topeMB} MB`);
     }
 
     let { buffer, mimetype, originalname } = archivo;
@@ -103,6 +106,41 @@ export class MediaService {
         this.log.error('no se pudo convertir la nota de voz: ¿está ffmpeg instalado?');
         throw new BadRequestException(
           'No se pudo preparar la nota de voz. Probá adjuntando el audio como archivo.',
+        );
+      }
+    }
+
+    // Los celulares graban en HEVC para ahorrar espacio y WhatsApp solo acepta
+    // H.264. Meta no lo rechaza al subirlo: lo acepta, lo manda, y avisa del
+    // fallo por webhook cuando ya nadie esta mirando.
+    if (esVideo(mimetype)) {
+      const flujos = await codecs(buffer);
+
+      if (yaSirve(mimetype, flujos)) {
+        this.log.log(`video ${flujos?.video}/${flujos?.audio ?? 'sin audio'}: se manda tal cual`);
+      } else {
+        const convertido = await aH264(buffer);
+        this.log.log(
+          `video ${flujos?.video ?? '?'}: ${buffer.length} B -> ` +
+            `${convertido ? `h264 ${convertido.length} B` : 'FALLO'}`,
+        );
+
+        if (!convertido) {
+          throw new BadRequestException(
+            'No se pudo preparar el video. Probá con uno más corto, o mandalo como archivo.',
+          );
+        }
+
+        buffer = convertido;
+        mimetype = MIME_VIDEO;
+        originalname = originalname.replace(/\.[^.]+$/, '') + '.mp4';
+      }
+
+      // Recien ahora se sabe cuanto pesa lo que sale.
+      if (buffer.length > env.MEDIA_MAX_MB * 1024 * 1024) {
+        throw new BadRequestException(
+          `El video sigue pesando ${Math.round(buffer.length / 1024 / 1024)} MB después de ` +
+            `comprimirlo y WhatsApp acepta hasta ${env.MEDIA_MAX_MB} MB. Probá con uno más corto.`,
         );
       }
     }

@@ -65,8 +65,10 @@ export default function App() {
   const [verPlantillas, setVerPlantillas] = useState(false);
   const [archivoPendiente, setArchivoPendiente] = useState<File | null>(null);
   const [maxArchivoMB, setMaxArchivoMB] = useState(16);
+  const [maxVideoMB, setMaxVideoMB] = useState(64);
   const [ubicacionNegocio, setUbicacionNegocio] = useState<UbicacionNegocio | null>(null);
   const [porEliminar, setPorEliminar] = useState<Mensaje | null>(null);
+  const [respondiendoA, setRespondiendoA] = useState<Mensaje | null>(null);
   const [eliminando, setEliminando] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
@@ -138,6 +140,7 @@ export default function App() {
       .config()
       .then((c) => {
         setMaxArchivoMB(c.maxArchivoMB);
+        setMaxVideoMB(c.maxVideoMB);
         setUbicacionNegocio(c.ubicacionNegocio);
       })
       .catch(() => undefined);
@@ -287,6 +290,9 @@ export default function App() {
 
   useEffect(() => {
     setEscribiendo([]);
+    // Al cambiar de chat la cita se descarta: si no, se responderia en una
+    // conversacion citando un mensaje de otra.
+    setRespondiendoA(null);
 
     if (!seleccionada) {
       setMensajes([]);
@@ -329,7 +335,8 @@ export default function App() {
     setEnviando(true);
     setAviso('');
     try {
-      await api.enviarArchivo(seleccionada, archivo);
+      await api.enviarArchivo(seleccionada, archivo, undefined, respondiendoA?.id);
+      setRespondiendoA(null);
     } catch (e) {
       setAviso(e instanceof ErrorApi ? e.message : 'No se pudo enviar la nota de voz');
     } finally {
@@ -385,8 +392,9 @@ export default function App() {
     setEnviando(true);
     setAviso('');
     try {
-      const m = await api.enviar(seleccionada, texto);
+      const m = await api.enviar(seleccionada, texto, respondiendoA?.id);
       setMensajes((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+      setRespondiendoA(null);
     } catch (e) {
       const err = e as ErrorApi;
       setAviso(err.datos?.mensaje ?? err.message);
@@ -402,9 +410,15 @@ export default function App() {
     setEnviando(true);
     setAviso('');
     try {
-      const m = await api.enviarArchivo(seleccionada, archivoPendiente, caption || undefined);
+      const m = await api.enviarArchivo(
+        seleccionada,
+        archivoPendiente,
+        caption || undefined,
+        respondiendoA?.id,
+      );
       setMensajes((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
       setArchivoPendiente(null);
+      setRespondiendoA(null);
     } catch (e) {
       const err = e as ErrorApi;
       setAviso(err.datos?.mensaje ?? err.message);
@@ -663,6 +677,7 @@ export default function App() {
                 onBorrarNota={borrarNota}
                 puedeBorrar={(n) => n.autorId === asesor.id || asesor.rol !== 'asesor'}
                 onEliminarMensaje={setPorEliminar}
+                onResponder={setRespondiendoA}
                 // Misma regla que aplica el servidor: un asesor saca los entrantes
                 // y los que mandó él. Si acá fuera más permisiva, el botón
                 // aparecería para terminar en un 403.
@@ -701,6 +716,8 @@ export default function App() {
                 onPlantilla={() => setVerPlantillas(true)}
                 onUbicacion={enviarUbicacion}
                 ubicacionNegocio={ubicacionNegocio}
+                respondiendoA={respondiendoA}
+                onCancelarRespuesta={() => setRespondiendoA(null)}
                 onEscribiendo={() => socketRef.current?.emit('escribiendo', seleccionada)}
                 onDejarDeEscribir={() =>
                   socketRef.current?.emit('dejar-de-escribir', seleccionada)
@@ -722,6 +739,7 @@ export default function App() {
         <PreviaArchivo
           archivo={archivoPendiente}
           maxMB={maxArchivoMB}
+          maxVideoMB={maxVideoMB}
           enviando={enviando}
           onEnviar={enviarArchivo}
           onCancelar={() => setArchivoPendiente(null)}

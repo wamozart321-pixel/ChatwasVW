@@ -19,7 +19,6 @@ import { Inject } from '@nestjs/common';
 import { AsesorActual } from '../auth/asesor.decorator';
 import { AuthGuard } from '../auth/auth.guard';
 import type { Asesor } from '../auth/auth.service';
-import { env } from '../config/env';
 import { DB, type Database } from '../db/db.module';
 import { messages } from '../db/schema';
 import { AlmacenService } from '../media/almacen.service';
@@ -84,12 +83,14 @@ export class MediaController {
     @Param('id') id: string,
     @UploadedFile() archivo: Express.Multer.File | undefined,
     @Query('caption') caption: string | undefined,
+    @Query('respondeA') respondeA: string | undefined,
     @AsesorActual() asesor: Asesor,
   ) {
     if (!archivo) throw new BadRequestException('falta el archivo');
-    if (archivo.size > env.MEDIA_MAX_MB * 1024 * 1024) {
-      throw new BadRequestException(`el archivo supera los ${env.MEDIA_MAX_MB} MB`);
-    }
+
+    // El tope lo pone `prepararSalida` y no este control: un video se admite
+    // mas grande porque se recomprime antes de salir, y tenerlo escrito en dos
+    // lados terminaba con el video rechazado aca antes de llegar a convertirse.
 
     const conv = await this.bandeja.detalle(id);
     const subido = await this.media.prepararSalida(archivo);
@@ -109,6 +110,7 @@ export class MediaController {
         tamano: subido.tamano,
       },
       userId: asesor.id,
+      respondeA: respondeA ?? null,
     });
   }
 }

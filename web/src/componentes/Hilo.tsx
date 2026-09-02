@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { Mensaje, Nota } from '../api';
+import type { Cita, Mensaje, Nota } from '../api';
 import Media from './Media';
 
 function hora(iso: string) {
@@ -12,6 +12,55 @@ function diaLegible(iso: string) {
   if (d.toDateString() === hoy.toDateString()) return 'Hoy';
   if (d.toDateString() === new Date(hoy.getTime() - 86_400_000).toDateString()) return 'Ayer';
   return d.toLocaleDateString('es', { day: 'numeric', month: 'long' });
+}
+
+/**
+ * Que decir de un mensaje citado que no lleva texto.
+ *
+ * Una nota de voz o una foto sin epigrafe no tienen cuerpo, y la cita quedaria
+ * como un renglon en blanco que no permite reconocer a que se estaba
+ * respondiendo.
+ */
+const CITA_SIN_TEXTO: Record<string, string> = {
+  audio: '🎤 Nota de voz',
+  image: '📷 Foto',
+  video: '🎥 Video',
+  sticker: '🙂 Sticker',
+  document: '📄 Documento',
+  location: '📍 Ubicación',
+  contacts: '👤 Contacto',
+};
+
+function resumirCita(cita: Cita): string {
+  if (cita.cuerpo?.trim()) return cita.cuerpo;
+  return CITA_SIN_TEXTO[cita.tipo] ?? 'Mensaje';
+}
+
+/**
+ * El renglon gris arriba de la burbuja: a que mensaje contesta este.
+ *
+ * Al tocarlo se salta al original y se lo resalta un momento. En una
+ * conversacion larga, una cita que no lleva a ningun lado obliga a subir a mano
+ * buscando de que se hablaba.
+ */
+function Citado({ cita, mio }: { cita: Cita; mio: boolean }) {
+  return (
+    <button
+      onClick={() => {
+        const destino = document.getElementById(`mensaje-${cita.id}`);
+        if (!destino) return;
+        destino.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        destino.classList.add('ring-2', 'ring-marca-400');
+        setTimeout(() => destino.classList.remove('ring-2', 'ring-marca-400'), 1500);
+      }}
+      className={`mb-1.5 block w-full rounded-lg border-l-[3px] px-2 py-1 text-left text-xs ${
+        mio ? 'border-white/70 bg-white/15 text-white/90' : 'border-marca-400 bg-slate-100 text-slate-600'
+      }`}
+    >
+      <span className="block font-semibold">{cita.autor ?? 'Cliente'}</span>
+      <span className="line-clamp-2 opacity-90">{resumirCita(cita)}</span>
+    </button>
+  );
 }
 
 function Checks({ status }: { status: Mensaje['status'] }) {
@@ -33,6 +82,7 @@ export default function Hilo({
   puedeBorrar,
   onEliminarMensaje,
   puedeEliminar,
+  onResponder,
 }: {
   mensajes: Mensaje[];
   notas: Nota[];
@@ -40,6 +90,7 @@ export default function Hilo({
   puedeBorrar: (nota: Nota) => boolean;
   onEliminarMensaje: (m: Mensaje) => void;
   puedeEliminar: (m: Mensaje) => boolean;
+  onResponder: (m: Mensaje) => void;
 }) {
   const finRef = useRef<HTMLDivElement>(null);
 
@@ -141,8 +192,23 @@ export default function Hilo({
                 </button>
               )}
 
+              {/*
+                No se puede citar un mensaje eliminado ni uno que Meta todavia
+                no acepto: sin wamid, la cita no existe del otro lado.
+              */}
+              {mio && !m.eliminado && m.waMessageId && (
+                <button
+                  onClick={() => onResponder(m)}
+                  title="Responder"
+                  className="shrink-0 rounded p-1 text-xs text-slate-300 opacity-0 transition group-hover:opacity-100 hover:text-marca-600"
+                >
+                  ↩
+                </button>
+              )}
+
               <div
-                className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm shadow-sm md:max-w-[70%] ${
+                id={`mensaje-${m.id}`}
+                className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm shadow-sm transition md:max-w-[70%] ${
                   mio
                     ? m.status === 'failed'
                       ? 'bg-red-500 text-white'
@@ -154,6 +220,8 @@ export default function Hilo({
                     : 'bg-white text-slate-800'
                 }`}
               >
+                {m.citado && <Citado cita={m.citado} mio={mio} />}
+
                 {m.esBot && (
                   <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-white/60">
                     Respuesta automática
@@ -231,6 +299,20 @@ export default function Hilo({
                   </p>
                 )}
               </div>
+
+              {/*
+                Del lado del cliente los botones van despues de la burbuja: es
+                el borde por donde queda el espacio libre.
+              */}
+              {!mio && !m.eliminado && m.waMessageId && (
+                <button
+                  onClick={() => onResponder(m)}
+                  title="Responder"
+                  className="shrink-0 rounded p-1 text-xs text-slate-300 opacity-0 transition group-hover:opacity-100 hover:text-marca-600"
+                >
+                  ↩
+                </button>
+              )}
 
               {!mio && puedeEliminar(m) && (
                 <button

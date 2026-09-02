@@ -1,7 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
-import type { UbicacionNegocio } from '../api';
+import type { Mensaje, UbicacionNegocio } from '../api';
 import EnviarUbicacion from './EnviarUbicacion';
 import GrabarAudio from './GrabarAudio';
+
+/** Un mensaje sin texto —una foto, una nota de voz— resumido en una linea. */
+const SIN_TEXTO: Record<string, string> = {
+  audio: '🎤 Nota de voz',
+  image: '📷 Foto',
+  video: '🎥 Video',
+  sticker: '🙂 Sticker',
+  document: '📄 Documento',
+  location: '📍 Ubicación',
+  contacts: '👤 Contacto',
+};
+
+function resumen(m: Mensaje): string {
+  if (m.cuerpo?.trim()) return m.cuerpo;
+  return SIN_TEXTO[m.tipo] ?? 'Mensaje';
+}
 
 function restante(vence: string | null): string {
   if (!vence) return '';
@@ -29,6 +45,8 @@ export default function Redactor({
   ubicacionNegocio,
   onEscribiendo,
   onDejarDeEscribir,
+  respondiendoA,
+  onCancelarRespuesta,
 }: {
   ventanaAbierta: boolean;
   ventanaVence: string | null;
@@ -47,6 +65,9 @@ export default function Redactor({
   ubicacionNegocio: UbicacionNegocio | null;
   onEscribiendo: () => void;
   onDejarDeEscribir: () => void;
+  /** El mensaje que se esta respondiendo, si hay alguno. */
+  respondiendoA: Mensaje | null;
+  onCancelarRespuesta: () => void;
 }) {
   const [texto, setTexto] = useState('');
   const [verUbicacion, setVerUbicacion] = useState(false);
@@ -106,6 +127,28 @@ export default function Redactor({
     <div className="border-t border-slate-200 bg-white px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:px-6">
       {porVencer && (
         <p className="mb-2 text-xs font-medium text-amber-600">La ventana vence en {queda}</p>
+      )}
+
+      {/*
+        Arriba del campo y no adentro: tiene que verse mientras se escribe, para
+        que nadie mande la respuesta creyendo que citaba otra cosa.
+      */}
+      {respondiendoA && (
+        <div className="mb-2 flex items-start gap-2 rounded-lg border-l-[3px] border-marca-500 bg-slate-50 px-2.5 py-1.5">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold text-marca-700">
+              Respondiendo a {respondiendoA.direccion === 'in' ? 'el cliente' : 'tu mensaje'}
+            </p>
+            <p className="truncate text-xs text-slate-500">{resumen(respondiendoA)}</p>
+          </div>
+          <button
+            onClick={onCancelarRespuesta}
+            title="Cancelar la respuesta"
+            className="shrink-0 rounded px-1 text-slate-400 transition hover:text-slate-700"
+          >
+            ✕
+          </button>
+        </div>
       )}
 
       {/*

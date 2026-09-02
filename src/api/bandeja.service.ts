@@ -5,6 +5,7 @@ import { DB, type Database } from '../db/db.module';
 import { contacts, conversations, events, messages, users } from '../db/schema';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { GraphService } from '../whatsapp/graph.service';
+import type { CitaDeMensaje } from './mensaje.vista';
 
 /**
  * Que muestra cada solapa de la bandeja.
@@ -293,6 +294,27 @@ export class BandejaService {
         eliminado: sql<boolean>`${messages.eliminadoEn} IS NOT NULL`,
         eliminadoPor: sql<string | null>`(
           SELECT u.nombre FROM users u WHERE u.id = ${messages.eliminadoPor}
+        )`,
+        /**
+         * El mensaje citado, resumido. Va en un subselect y no en un JOIN
+         * porque casi ningun mensaje responde a otro: un JOIN pagaria el costo
+         * en todas las filas del hilo para llenar unas pocas.
+         *
+         * `messages.responde_a` va escrito con la tabla adelante a proposito.
+         * La subconsulta tambien es sobre `messages`, asi que una referencia
+         * sin calificar la resuelve Postgres contra la tabla de adentro: la
+         * fila se cita a si misma, la condicion nunca se cumple y la cita sale
+         * en null sin que nada falle.
+         */
+        citado: sql<CitaDeMensaje | null>`(
+          SELECT json_build_object(
+            'id', cit.id,
+            'direccion', cit.direccion,
+            'tipo', cit.tipo,
+            'cuerpo', CASE WHEN cit.eliminado_en IS NULL THEN cit.cuerpo END,
+            'autor', (SELECT u.nombre FROM users u WHERE u.id = cit.sent_by_user_id)
+          )
+          FROM messages cit WHERE cit.id = messages.responde_a
         )`,
       })
       .from(messages)

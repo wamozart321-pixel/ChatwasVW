@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, lt, sql } from 'drizzle-orm';
+import type { CitaDeMensaje } from '../api/mensaje.vista';
 import { DB, type Database } from '../db/db.module';
 import { messages, RANGO_ESTADO, type EstadoMensaje } from '../db/schema';
 import type { WaError } from '../whatsapp/webhook.types';
@@ -16,6 +17,8 @@ export interface EntranteAGuardar {
   ubicacionLon: number | null;
   waTimestamp: Date;
   raw: Record<string, unknown>;
+  /** Nuestra fila del mensaje citado, ya resuelta desde el wamid de Meta. */
+  respondeA?: string | null;
 }
 
 @Injectable()
@@ -46,9 +49,57 @@ export class MessagesService {
         statusRank: RANGO_ESTADO.delivered,
         waTimestamp: datos.waTimestamp,
         raw: datos.raw,
+        respondeA: datos.respondeA ?? null,
       })
       .onConflictDoNothing({ target: messages.waMessageId })
       .returning();
+
+    return fila ?? null;
+  }
+
+  /**
+   * Nuestra fila a partir del wamid de Meta.
+   *
+   * Se usa cuando el cliente responde citando: el webhook trae el wamid del
+   * mensaje citado y hay que saber cual es de los nuestros. Puede no estar —una
+   * conversacion mas vieja que la instalacion, o un mensaje que se mando desde
+   * el telefono— y entonces la respuesta se guarda sin cita.
+   */
+  async porWamid(waMessageId: string): Promise<{ id: string } | null> {
+    const [fila] = await this.db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.waMessageId, waMessageId))
+      .limit(1);
+
+    return fila ?? null;
+  }
+
+  /**
+   * El resumen del mensaje citado, con la forma que espera el hilo.
+   *
+   * Hace falta porque el hilo lo trae en su SELECT pero los avisos en vivo
+   * mandan la fila cruda: sin esto, una respuesta recien enviada aparece sin la
+   * cita hasta que el asesor recarga.
+   */
+  async resumenCitado(id: string | null | undefined): Promise<CitaDeMensaje | null> {
+    if (!id) return null;
+
+    const [fila] = await this.db
+      .select({
+        id: messages.id,
+        direccion: messages.direccion,
+        tipo: messages.tipo,
+        cuerpo: sql<
+          string | null
+        >`CASE WHEN ${messages.eliminadoEn} IS NULL THEN ${messages.cuerpo} END`,
+        autor: sql<string | null>`(
+          SELECT u.nombre FROM users u WHERE u.id = ${messages.sentByUserId}
+        )`,
+      })
+      .from(messages)
+      .where(eq(messages.id, id))
+      .limit(1);
 
     return fila ?? null;
   }
@@ -66,6 +117,7 @@ export class MessagesService {
     mediaTamano?: number | null;
     ubicacionLat?: number | null;
     ubicacionLon?: number | null;
+    respondeA?: string | null;
   }) {
     const [fila] = await this.db
       .insert(messages)
@@ -90,10 +142,29 @@ export class MessagesService {
         mediaTamano: datos.mediaTamano ?? null,
         ubicacionLat: datos.ubicacionLat ?? null,
         ubicacionLon: datos.ubicacionLon ?? null,
+        respondeA: datos.respondeA ?? null,
       })
       .returning();
 
     return fila;
+  }
+
+  /**
+   * El wamid de un mensaje nuestro, para poder citarlo.
+   *
+   * Devuelve null si no existe, si es de otra conversacion o si todavia no
+   * tiene wamid —un saliente que Meta no confirmo—. En los tres casos la
+   * respuesta sale igual, sin cita: perder la cita es molesto, no poder
+   * contestarle al cliente lo es mucho mas.
+   */
+  async wamidParaCitar(id: string, conversationId: string): Promise<string | null> {
+    const [fila] = await this.db
+      .select({ waMessageId: messages.waMessageId })
+      .from(messages)
+      .where(and(eq(messages.id, id), eq(messages.conversationId, conversationId)))
+      .limit(1);
+
+    return fila?.waMessageId ?? null;
   }
 
   async confirmarEnviado(id: string, waMessageId: string) {

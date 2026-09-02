@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   bigserial,
   boolean,
   doublePrecision,
@@ -151,6 +152,21 @@ export const messages = pgTable(
     errorMessage: text('error_message'),
     /** Asesor que lo envio. NULL en entrantes y en envios automaticos. */
     sentByUserId: uuid('sent_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    /**
+     * Mensaje al que este responde, cuando es una respuesta citada.
+     *
+     * Apunta a nuestra fila y no al wamid de Meta porque el hilo necesita
+     * mostrar la cita —quien lo dijo y que decia— y eso sale de la fila. Para
+     * un entrante se resuelve al reves: Meta manda el wamid en `context.id` y
+     * se busca cual es.
+     *
+     * `set null` y no `cascade`: si el mensaje citado se elimina, la respuesta
+     * sigue siendo un mensaje valido que el cliente ya leyo. Pierde la cita, no
+     * desaparece.
+     */
+    respondeA: uuid('responde_a').references((): AnyPgColumn => messages.id, {
+      onDelete: 'set null',
+    }),
     /**
      * Eliminado de la bandeja. Es borrado logico: el cuerpo queda en la base
      * para la auditoria, pero deja de mostrarse.

@@ -11,6 +11,22 @@
  * hilo, hay que agregarlo tambien en `aVistaDeMensaje` o vuelve a pasar lo
  * mismo, esta vez con el campo nuevo.
  */
+/**
+ * El mensaje citado, cuando este responde a otro.
+ *
+ * Se manda resumido y no el mensaje entero: en el hilo la cita es un renglon
+ * gris arriba de la burbuja, y con saber quien lo dijo, de que tipo era y como
+ * empezaba alcanza para reconocerlo.
+ */
+export interface CitaDeMensaje {
+  id: string;
+  direccion: string;
+  tipo: string;
+  cuerpo: string | null;
+  /** Nombre del asesor. null si lo mando el cliente. */
+  autor: string | null;
+}
+
 export interface MensajeDeBandeja {
   id: string;
   waMessageId: string | null;
@@ -31,6 +47,7 @@ export interface MensajeDeBandeja {
   cuando: Date | string;
   eliminado: boolean;
   eliminadoPor: string | null;
+  citado: CitaDeMensaje | null;
 }
 
 /** Una fila de `messages` tal como sale de la base. */
@@ -53,6 +70,11 @@ interface FilaMensaje {
   errorMessage: string | null;
   waTimestamp: Date | string;
   eliminadoEn: Date | string | null;
+  /**
+   * Ya resuelto por quien arma la fila: el hilo lo trae en el SELECT y los
+   * avisos en vivo lo cuelgan antes de emitir. Aca no se consulta la base.
+   */
+  citado?: CitaDeMensaje | null;
 }
 
 /**
@@ -89,5 +111,6 @@ export function aVistaDeMensaje(fila: FilaMensaje | Record<string, unknown>): Me
     cuando: f.waTimestamp,
     eliminado,
     eliminadoPor: null,
+    citado: f.citado ?? null,
   };
 }

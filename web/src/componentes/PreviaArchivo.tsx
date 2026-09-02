@@ -23,12 +23,14 @@ function icono(mime: string): string {
 export default function PreviaArchivo({
   archivo,
   maxMB,
+  maxVideoMB,
   enviando,
   onEnviar,
   onCancelar,
 }: {
   archivo: File;
   maxMB: number;
+  maxVideoMB: number;
   enviando: boolean;
   onEnviar: (caption: string) => void;
   onCancelar: () => void;
@@ -39,7 +41,11 @@ export default function PreviaArchivo({
 
   const esImagen = archivo.type.startsWith('image/');
   const esVideo = archivo.type.startsWith('video/');
-  const excedido = archivo.size > maxMB * 1024 * 1024;
+
+  // Un video se admite mas grande porque el servidor lo recomprime antes de
+  // mandarlo. Si aun asi no entra, el aviso llega desde alla.
+  const tope = esVideo ? maxVideoMB : maxMB;
+  const excedido = archivo.size > tope * 1024 * 1024;
 
   useEffect(() => {
     if (!esImagen && !esVideo) return;
@@ -89,7 +95,9 @@ export default function PreviaArchivo({
 
         {excedido && (
           <p className="border-t border-red-200 bg-red-50 px-5 py-2 text-xs text-red-700">
-            Supera el límite de {maxMB} MB que acepta WhatsApp. Elegí un archivo más chico.
+            {esVideo
+              ? `Supera los ${tope} MB. Elegí un video más corto.`
+              : `Supera el límite de ${tope} MB que acepta WhatsApp. Elegí un archivo más chico.`}
           </p>
         )}
 

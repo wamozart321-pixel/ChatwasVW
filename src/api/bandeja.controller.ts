@@ -67,7 +67,7 @@ export class BandejaController {
   @Post('conversaciones/:id/mensajes')
   async enviar(
     @Param('id') id: string,
-    @Body() body: { texto: string },
+    @Body() body: { texto: string; respondeA?: string },
     @AsesorActual() asesor: Asesor,
   ) {
     const conv = await this.bandeja.detalle(id);
@@ -80,6 +80,7 @@ export class BandejaController {
       a: conv.telefono,
       texto: body?.texto ?? '',
       userId: asesor.id,
+      respondeA: body?.respondeA ?? null,
     });
   }
 
@@ -152,6 +153,8 @@ export class BandejaController {
   config() {
     return {
       maxArchivoMB: env.MEDIA_MAX_MB,
+      // Un video se acepta mas grande porque se recomprime antes de salir.
+      maxVideoMB: env.MEDIA_VIDEO_MAX_MB,
       // Si el local no tiene coordenadas cargadas, el boton de "nuestra
       // ubicacion" no se dibuja. Se manda null y no se inventa nada.
       ubicacionNegocio:

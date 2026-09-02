@@ -121,6 +121,16 @@ const esquema = z.object({
 
   /** Tope de descarga y de subida, en MB. WhatsApp no acepta mas de 16 MB. */
   MEDIA_MAX_MB: z.coerce.number().int().positive().max(100).default(16),
+
+  /**
+   * Cuanto pesa como maximo el video que se acepta SUBIR.
+   *
+   * Es mas alto que MEDIA_MAX_MB porque el video se recomprime antes de
+   * mandarlo: medio minuto de camara a 1080p pasa de los 16 MB que acepta
+   * WhatsApp, pero convertido a 720p entra de sobra. El tope de verdad —el de
+   * Meta— se vuelve a comprobar sobre el archivo ya convertido.
+   */
+  MEDIA_VIDEO_MAX_MB: z.coerce.number().int().positive().max(100).default(64),
 });
 
 const parsed = esquema.safeParse(process.env);

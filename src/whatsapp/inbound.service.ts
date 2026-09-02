@@ -77,6 +77,11 @@ export class InboundService {
     const contacto = await this.conversaciones.asegurarContacto(m.from, nombrePerfil);
     const conversacion = await this.conversaciones.registrarEntrante(contacto.id, cuando);
 
+    // El cliente respondio citando algo nuestro: Meta manda el wamid del
+    // mensaje citado y hay que traducirlo a nuestra fila para poder dibujar la
+    // cita en el hilo.
+    const citado = m.context?.id ? await this.mensajes.porWamid(m.context.id) : null;
+
     const guardado = await this.mensajes.guardarEntrante({
       conversationId: conversacion.id,
       waMessageId: m.id,
@@ -89,6 +94,7 @@ export class InboundService {
       ubicacionLon: contenido.ubicacionLon,
       waTimestamp: cuando,
       raw: m as unknown as Record<string, unknown>,
+      respondeA: citado?.id ?? null,
     });
 
     if (!guardado) {
@@ -109,7 +115,12 @@ export class InboundService {
     // a Meta y esa llamada tarda un par de segundos. Dejarla en el medio hacía
     // que el asesor viera lo que le escribió el cliente recién cuando el bot
     // terminaba de contestarle.
-    this.realtime.mensajeNuevo(conversacion.id, guardado);
+    // Con la cita ya resuelta: si no, una respuesta del cliente llega al hilo
+    // sin el renglon que dice a que estaba contestando.
+    this.realtime.mensajeNuevo(conversacion.id, {
+      ...guardado,
+      citado: await this.mensajes.resumenCitado(citado?.id),
+    });
 
     // El bot primero: mientras esté recolectando datos no tiene sentido
     // asignarle la conversación a un asesor, porque el cliente todavía está

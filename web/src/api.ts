@@ -102,6 +102,16 @@ export interface DetalleConversacion {
   asignadaEn: string | null;
 }
 
+/** El mensaje citado, cuando este responde a otro. */
+export interface Cita {
+  id: string;
+  direccion: 'in' | 'out';
+  tipo: string;
+  cuerpo: string | null;
+  /** Nombre del asesor. null si lo mando el cliente. */
+  autor: string | null;
+}
+
 export interface Mensaje {
   id: string;
   waMessageId: string | null;
@@ -122,6 +132,7 @@ export interface Mensaje {
   cuando: string;
   eliminado: boolean;
   eliminadoPor: string | null;
+  citado: Cita | null;
 }
 
 export interface Lugar {
@@ -220,7 +231,9 @@ export const api = {
   yo: () => pedir<Asesor>('/auth/yo'),
 
   config: () =>
-    pedir<{ maxArchivoMB: number; ubicacionNegocio: UbicacionNegocio | null }>('/config'),
+    pedir<{ maxArchivoMB: number; maxVideoMB: number; ubicacionNegocio: UbicacionNegocio | null }>(
+      '/config',
+    ),
 
   /**
    * Manda una ubicacion. O se le pasan las coordenadas, o el texto crudo que
@@ -284,10 +297,10 @@ export const api = {
 
   hilo: (id: string) => pedir<Mensaje[]>(`/conversaciones/${id}/mensajes`),
 
-  enviar: (id: string, texto: string) =>
+  enviar: (id: string, texto: string, respondeA?: string | null) =>
     pedir<Mensaje>(`/conversaciones/${id}/mensajes`, {
       method: 'POST',
-      body: JSON.stringify({ texto }),
+      body: JSON.stringify({ texto, respondeA: respondeA ?? undefined }),
     }),
 
   leida: (id: string) => pedir(`/conversaciones/${id}/leida`, { method: 'POST' }),
@@ -343,12 +356,16 @@ export const api = {
 
   // --- archivos ---
 
-  enviarArchivo: async (id: string, archivo: File, caption?: string) => {
+  enviarArchivo: async (id: string, archivo: File, caption?: string, respondeA?: string | null) => {
     const form = new FormData();
     form.append('archivo', archivo);
 
-    const url =
-      `/api/conversaciones/${id}/media` + (caption ? `?caption=${encodeURIComponent(caption)}` : '');
+    const parametros = new URLSearchParams();
+    if (caption) parametros.set('caption', caption);
+    if (respondeA) parametros.set('respondeA', respondeA);
+    const cola = parametros.toString();
+
+    const url = `/api/conversaciones/${id}/media` + (cola ? `?${cola}` : '');
 
     // Sin Content-Type: el navegador lo arma con el boundary del multipart.
     const r = await fetch(url, {
