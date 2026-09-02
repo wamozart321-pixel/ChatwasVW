@@ -17,3 +17,16 @@ escritorio/salida
 
 # respaldos de la base: pueden tener datos de clientes
 respaldos/
+
+# app de android
+movil/node_modules
+movil/salida
+movil/android/build
+movil/android/app/build
+movil/android/.gradle
+movil/android/local.properties
+
+# La firma de la app y su clave. Si esto se pierde, un telefono que ya tenga
+# WhatsWV instalado no acepta la actualizacion: hay que desinstalar primero.
+# Va aparte del repositorio y se respalda a mano.
+movil/firma/

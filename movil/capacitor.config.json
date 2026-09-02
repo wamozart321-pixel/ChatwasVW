@@ -1,0 +1,13 @@
+{
+  "appId": "com.repuestosjhonpardo.whatswv",
+  "appName": "WhatsWV",
+  "webDir": "publico",
+  "server": {
+    "url": "https://bandeja.chatwasvw.com",
+    "cleartext": false,
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

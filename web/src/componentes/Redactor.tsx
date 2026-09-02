@@ -51,8 +51,11 @@ export default function Redactor({
   const [texto, setTexto] = useState('');
   const [verUbicacion, setVerUbicacion] = useState(false);
   const [grabando, setGrabando] = useState(false);
+  const [verCamara, setVerCamara] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const archivoRef = useRef<HTMLInputElement>(null);
+  const fotoRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLInputElement>(null);
 
   // Crece con el contenido, hasta un tope.
   useEffect(() => {
@@ -79,7 +82,7 @@ export default function Redactor({
 
   if (!ventanaAbierta) {
     return (
-      <div className="border-t border-amber-200 bg-amber-50 px-6 py-4">
+      <div className="border-t border-amber-200 bg-amber-50 px-4 py-4 md:px-6">
         <p className="text-sm font-medium text-amber-900">Ventana de 24 horas cerrada</p>
         <p className="mt-1 text-xs text-amber-700">
           Pasaron más de 24 h desde el último mensaje del cliente. WhatsApp sólo permite
@@ -100,7 +103,7 @@ export default function Redactor({
   const porVencer = queda !== '' && !queda.includes('h');
 
   return (
-    <div className="border-t border-slate-200 bg-white px-6 py-3">
+    <div className="border-t border-slate-200 bg-white px-3 py-3 md:px-6">
       {porVencer && (
         <p className="mb-2 text-xs font-medium text-amber-600">La ventana vence en {queda}</p>
       )}
@@ -127,6 +130,74 @@ export default function Redactor({
         >
           📎
         </button>
+
+        {/*
+            «capture» le pide al teléfono la cámara de atrás en vez del
+            explorador de archivos. En un computador el navegador lo ignora y
+            abre el selector de siempre, que es lo único que puede hacer ahí.
+        */}
+        <input
+          ref={fotoRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => {
+            const archivo = e.target.files?.[0];
+            if (archivo) onArchivo(archivo);
+            e.target.value = '';
+          }}
+        />
+        <input
+          ref={videoRef}
+          type="file"
+          accept="video/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => {
+            const archivo = e.target.files?.[0];
+            if (archivo) onArchivo(archivo);
+            e.target.value = '';
+          }}
+        />
+
+        <div className="relative mb-0.5">
+          <button
+            onClick={() => setVerCamara((v) => !v)}
+            disabled={enviando}
+            title="Tomar una foto o grabar un video"
+            className="rounded-xl border border-slate-200 px-3 py-2.5 text-slate-500 transition hover:bg-slate-50 disabled:opacity-40"
+          >
+            📷
+          </button>
+
+          {verCamara && (
+            <>
+              {/* Tapa la pantalla para poder cerrar tocando al lado. */}
+              <div className="fixed inset-0 z-10" onClick={() => setVerCamara(false)} />
+              <div className="absolute bottom-full left-0 z-20 mb-2 w-40 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+                <button
+                  onClick={() => {
+                    setVerCamara(false);
+                    fotoRef.current?.click();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+                >
+                  📸 Foto
+                </button>
+                <button
+                  onClick={() => {
+                    setVerCamara(false);
+                    videoRef.current?.click();
+                  }}
+                  className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+                >
+                  🎥 Video
+                </button>
+              </div>
+            </>
+          )}
+        </div>
 
         <button
           onClick={() => setVerUbicacion(true)}

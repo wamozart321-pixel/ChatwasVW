@@ -484,7 +484,7 @@ export default function App() {
         <div className="flex size-8 items-center justify-center rounded-lg bg-marca-500 text-sm font-bold text-white">
           W
         </div>
-        <span className="font-semibold text-slate-900">WhatsWV</span>
+        <span className="hidden font-semibold text-slate-900 sm:inline">WhatsWV</span>
 
         <span
           className={`ml-auto flex items-center gap-1.5 text-xs ${
@@ -492,10 +492,11 @@ export default function App() {
           }`}
         >
           <span className={`size-1.5 rounded-full ${conectado ? 'bg-marca-500' : 'bg-slate-300'}`} />
-          {conectado ? 'En vivo' : 'Reconectando…'}
+          {/* En un celular el punto ya dice si hay conexion; el texto no cabe. */}
+          <span className="hidden sm:inline">{conectado ? 'En vivo' : 'Reconectando…'}</span>
         </span>
 
-        <div className="relative ml-4 flex items-center gap-3 border-l border-slate-200 pl-4">
+        <div className="relative ml-2 flex items-center gap-1.5 border-l border-slate-200 pl-2 sm:ml-4 sm:gap-3 sm:pl-4">
           <button
             onClick={() => setVerMetricas(true)}
             className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
@@ -521,7 +522,7 @@ export default function App() {
             </button>
           )}
 
-          <div className="text-right">
+          <div className="hidden text-right sm:block">
             <p className="text-xs font-medium text-slate-800">{asesor.nombre}</p>
             <p className="text-[10px] text-slate-400">{asesor.rol}</p>
           </div>
@@ -549,27 +550,34 @@ export default function App() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <ListaChats
-          conversaciones={conversaciones}
-          seleccionada={seleccionada}
-          filtro={filtro}
-          asignado={asignado}
-          busqueda={busqueda}
-          asesorId={asesor.id}
-          onNuevoChat={() => setVerNuevoChat(true)}
-          conteo={conteo}
-          puedeBorrarEtiquetas={asesor.rol !== 'asesor'}
-          onBorrarEtiqueta={borrarEtiqueta}
-          etiquetas={etiquetas}
-          etiquetaFiltro={etiquetaFiltro}
-          onFiltro={setFiltro}
-          onAsignado={setAsignado}
-          onBusqueda={setBusqueda}
-          onEtiquetaFiltro={setEtiquetaFiltro}
-          onSeleccionar={setSeleccionada}
-        />
+        {/*
+          En un celular no caben la lista y el chat a la vez, asi que se turnan:
+          se ve la lista hasta que se elige una conversacion, y de ahi se vuelve
+          con la flecha. De md para arriba conviven como siempre.
+        */}
+        <div className={`${actual ? 'hidden md:flex' : 'flex'} h-full w-full shrink-0 md:w-80`}>
+          <ListaChats
+            conversaciones={conversaciones}
+            seleccionada={seleccionada}
+            filtro={filtro}
+            asignado={asignado}
+            busqueda={busqueda}
+            asesorId={asesor.id}
+            onNuevoChat={() => setVerNuevoChat(true)}
+            conteo={conteo}
+            puedeBorrarEtiquetas={asesor.rol !== 'asesor'}
+            onBorrarEtiqueta={borrarEtiqueta}
+            etiquetas={etiquetas}
+            etiquetaFiltro={etiquetaFiltro}
+            onFiltro={setFiltro}
+            onAsignado={setAsignado}
+            onBusqueda={setBusqueda}
+            onEtiquetaFiltro={setEtiquetaFiltro}
+            onSeleccionar={setSeleccionada}
+          />
+        </div>
 
-        <main className="flex min-w-0 flex-1 flex-col">
+        <main className={`${actual ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 flex-col`}>
           {!actual ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-1 bg-slate-50 text-slate-400">
               <p className="text-lg font-medium text-slate-500">Ninguna conversación abierta</p>
@@ -577,15 +585,24 @@ export default function App() {
             </div>
           ) : (
             <>
-              <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-6 py-2.5">
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-900">
+              <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-2.5 md:px-6">
+                {/* Solo en celular: en pantalla grande la lista nunca se fue. */}
+                <button
+                  onClick={() => setSeleccionada(null)}
+                  title="Volver a la lista"
+                  className="-ml-1 rounded-lg px-1.5 py-1 text-lg text-slate-500 transition hover:bg-slate-100 md:hidden"
+                >
+                  ←
+                </button>
+
+                <div className="min-w-0">
+                  <h3 className="truncate text-sm font-semibold text-slate-900">
                     {actual.contacto ?? `+${actual.telefono}`}
                   </h3>
-                  <p className="text-xs text-slate-400">+{actual.telefono}</p>
+                  <p className="truncate text-xs text-slate-400">+{actual.telefono}</p>
                 </div>
 
-                <div className="ml-auto flex items-center gap-1.5">
+                <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                   {/*
                     Abierto y Pendiente son estados; Resolver es una ACCION. Con
                     los tres iguales nadie cerraba nada y "Abierto" se volvia un
@@ -657,13 +674,13 @@ export default function App() {
               />
 
               {escribiendo.length > 0 && (
-                <div className="bg-slate-50 px-6 pb-1 text-xs italic text-slate-500">
+                <div className="bg-slate-50 px-4 pb-1 text-xs italic text-slate-500 md:px-6">
                   {escribiendo.join(' y ')} {escribiendo.length > 1 ? 'están' : 'está'} escribiendo…
                 </div>
               )}
 
               {aviso && (
-                <div className="flex items-center gap-2 border-t border-amber-200 bg-amber-50 px-6 py-2 text-xs text-amber-800">
+                <div className="flex items-center gap-2 border-t border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 md:px-6">
                   <span>{aviso}</span>
                   <button
                     onClick={() => setAviso('')}

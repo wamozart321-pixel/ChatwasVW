@@ -56,7 +56,7 @@ export default function Hilo({
   ].sort((a, b) => new Date(a.cuando).getTime() - new Date(b.cuando).getTime());
 
   return (
-    <div className="flex-1 space-y-1 overflow-y-auto bg-slate-50 px-6 py-4">
+    <div className="flex-1 space-y-1 overflow-y-auto bg-slate-50 px-3 py-4 md:px-6">
       {entradas.map((entrada) => {
         const dia = diaLegible(entrada.cuando);
         const separador = dia !== ultimoDia;
@@ -74,7 +74,7 @@ export default function Hilo({
                 </div>
               )}
               <div className="flex justify-center">
-                <div className="group max-w-[75%] rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                <div className="group max-w-[85%] rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 md:max-w-[75%]">
                   <div className="mb-0.5 flex items-center gap-2">
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
                       Nota interna · {n.autor ?? 'alguien'}
@@ -142,7 +142,7 @@ export default function Hilo({
               )}
 
               <div
-                className={`max-w-[70%] rounded-2xl px-3.5 py-2 text-sm shadow-sm ${
+                className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm shadow-sm md:max-w-[70%] ${
                   mio
                     ? m.status === 'failed'
                       ? 'bg-red-500 text-white'
