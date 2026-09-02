@@ -63,6 +63,16 @@ const esquema = z.object({
     .default('true')
     .transform((v) => v === 'true'),
 
+  /**
+   * Idioma en el que el negocio le escribe a sus clientes.
+   *
+   * El selector de plantillas solo muestra las de este idioma. La cuenta trae
+   * de fabrica las de ejemplo de Meta (hello_world, jaspers_market_*), todas en
+   * en_US: no se pueden borrar sin control total sobre la cuenta, y mandarle
+   * una a un cliente de Bogota no tendria sentido.
+   */
+  PLANTILLAS_IDIOMA: z.string().default('es'),
+
   /** Zona horaria del negocio. El servidor puede estar en cualquier otra. */
   ZONA_HORARIA: z.string().default('America/Bogota'),
 

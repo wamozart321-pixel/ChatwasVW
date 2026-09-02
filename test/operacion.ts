@@ -748,6 +748,26 @@ async function main() {
     }
   });
 
+  await prueba('el selector no muestra las plantillas de ejemplo de Meta', async () => {
+    // La cuenta trae de fabrica hello_world y las de la tienda «Jasper's
+    // Market», en ingles. No se pueden borrar sin control total sobre la cuenta
+    // de WhatsApp, asi que se filtran por idioma: una plantilla en ingles no se
+    // le manda a un cliente de Bogota.
+    const { cuerpo: lista } = await api(tokenAndres, '/plantillas');
+
+    const enOtroIdioma = lista.filter((p: any) => p.idioma !== 'es');
+    assert.deepEqual(
+      enOtroIdioma.map((p: any) => p.nombre),
+      [],
+      'el selector muestra plantillas que no son del idioma del negocio',
+    );
+
+    assert.ok(
+      lista.some((p: any) => p.nombre === 'seguimiento_consulta'),
+      'se filtraron tambien las del negocio',
+    );
+  });
+
   await prueba('una plantilla inexistente da 404', async () => {
     const { status } = await api(
       tokenAndres,

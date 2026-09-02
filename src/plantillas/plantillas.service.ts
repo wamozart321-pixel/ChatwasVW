@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
+import { env } from '../config/env';
 import { DB, type Database } from '../db/db.module';
 import { templates } from '../db/schema';
 import { GraphService } from '../whatsapp/graph.service';
@@ -86,12 +87,20 @@ export class PlantillasService {
     return { sincronizadas: deMeta.length };
   }
 
-  /** Sólo las aprobadas: las demás no se pueden enviar. */
+  /**
+   * Sólo las aprobadas y en el idioma del negocio.
+   *
+   * Las que Meta deja de fábrica en la cuenta —hello_world y las cuatro de la
+   * tienda de ejemplo «Jasper's Market»— están en inglés y no se pueden borrar
+   * sin control total sobre la cuenta de WhatsApp. Filtrarlas por idioma las
+   * saca del selector: una plantilla en inglés no se le manda a un cliente de
+   * Bogotá, así que la regla vale igual para cualquiera que aparezca después.
+   */
   async listar() {
     const filas = await this.db
       .select()
       .from(templates)
-      .where(eq(templates.estado, 'APPROVED'))
+      .where(and(eq(templates.estado, 'APPROVED'), eq(templates.idioma, env.PLANTILLAS_IDIOMA)))
       .orderBy(asc(templates.nombre));
 
     return filas.map((t) => {
