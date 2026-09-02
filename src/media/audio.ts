@@ -77,11 +77,14 @@ export async function aNotaDeVoz(datos: Buffer): Promise<Buffer | null> {
         '-map_metadata', '-1',
         '-af', 'aresample=async=1:first_pts=0',
         '-c:a', 'libopus',
-        // Parametros de voz, no de musica: mono, 32 kbps y el modo 'voip' de
-        // Opus. Una nota de voz de un minuto pesa ~240 KB en vez de un mega.
+        // Parametros de voz, no de musica: mono y el modo 'voip' de Opus.
         '-ac', '1',
         '-ar', '48000',
-        '-b:a', '32k',
+        // 48k y no 32k: al apagar la supresion de ruido del navegador entra el
+        // sonido del local, y a 32 kbps el codec gasta en ese ruido los bits
+        // que necesita la voz. La nota sigue pesando poco — medio minuto son
+        // ~180 KB — y se entiende mucho mejor.
+        '-b:a', '48k',
         '-application', 'voip',
         '-f', 'ogg',
         salida,

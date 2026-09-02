@@ -83,6 +83,7 @@ export default function Hilo({
   onEliminarMensaje,
   puedeEliminar,
   onResponder,
+  onReenviar,
 }: {
   mensajes: Mensaje[];
   notas: Nota[];
@@ -91,6 +92,7 @@ export default function Hilo({
   onEliminarMensaje: (m: Mensaje) => void;
   puedeEliminar: (m: Mensaje) => boolean;
   onResponder: (m: Mensaje) => void;
+  onReenviar: (m: Mensaje) => void;
 }) {
   const finRef = useRef<HTMLDivElement>(null);
 
@@ -196,6 +198,16 @@ export default function Hilo({
                 No se puede citar un mensaje eliminado ni uno que Meta todavia
                 no acepto: sin wamid, la cita no existe del otro lado.
               */}
+              {mio && !m.eliminado && (
+                <button
+                  onClick={() => onReenviar(m)}
+                  title="Reenviar a otro chat"
+                  className="shrink-0 rounded p-1 text-xs text-slate-300 opacity-0 transition group-hover:opacity-100 hover:text-marca-600"
+                >
+                  ↪
+                </button>
+              )}
+
               {mio && !m.eliminado && m.waMessageId && (
                 <button
                   onClick={() => onResponder(m)}
@@ -220,6 +232,16 @@ export default function Hilo({
                     : 'bg-white text-slate-800'
                 }`}
               >
+                {m.reenviado && (
+                  <div
+                    className={`mb-1 flex items-center gap-1 text-[10px] italic ${
+                      mio ? 'text-white/60' : 'text-slate-400'
+                    }`}
+                  >
+                    ↪ Reenviado
+                  </div>
+                )}
+
                 {m.citado && <Citado cita={m.citado} mio={mio} />}
 
                 {m.esBot && (
@@ -311,6 +333,16 @@ export default function Hilo({
                   className="shrink-0 rounded p-1 text-xs text-slate-300 opacity-0 transition group-hover:opacity-100 hover:text-marca-600"
                 >
                   ↩
+                </button>
+              )}
+
+              {!mio && !m.eliminado && (
+                <button
+                  onClick={() => onReenviar(m)}
+                  title="Reenviar a otro chat"
+                  className="shrink-0 rounded p-1 text-xs text-slate-300 opacity-0 transition group-hover:opacity-100 hover:text-marca-600"
+                >
+                  ↪
                 </button>
               )}
 

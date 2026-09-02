@@ -289,6 +289,8 @@ export class BandejaService {
          * persona que uno donde contestó el menú automático.
          */
         esBot: sql<boolean>`coalesce((${messages.raw} ->> 'bot')::boolean, false)`,
+        /** Se mando desde otra conversacion: el hilo lo dice, como WhatsApp. */
+        reenviado: sql<boolean>`coalesce((${messages.raw} ->> 'reenviado')::boolean, false)`,
         errorMessage: sql<string | null>`CASE WHEN ${messages.eliminadoEn} IS NULL THEN ${messages.errorMessage} END`,
         cuando: messages.waTimestamp,
         eliminado: sql<boolean>`${messages.eliminadoEn} IS NOT NULL`,

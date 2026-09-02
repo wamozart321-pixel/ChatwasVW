@@ -43,6 +43,7 @@ export interface MensajeDeBandeja {
   ubicacionLon: number | null;
   enviadoPorId: string | null;
   esBot: boolean;
+  reenviado: boolean;
   errorMessage: string | null;
   cuando: Date | string;
   eliminado: boolean;
@@ -107,6 +108,7 @@ export function aVistaDeMensaje(fila: FilaMensaje | Record<string, unknown>): Me
     ubicacionLon: eliminado ? null : (f.ubicacionLon ?? null),
     enviadoPorId: f.sentByUserId ?? null,
     esBot: raw.bot === true,
+    reenviado: raw.reenviado === true,
     errorMessage: eliminado ? null : (f.errorMessage ?? null),
     cuando: f.waTimestamp,
     eliminado,

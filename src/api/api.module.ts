@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { AsignacionModule } from '../asignacion/asignacion.module';
 import { OperacionModule } from '../operacion/operacion.module';
 import { PlantillasModule } from '../plantillas/plantillas.module';
+import { MediaModule } from '../media/media.module';
+import { ReenvioService } from '../messages/reenvio.service';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { BandejaController } from './bandeja.controller';
 import { MediaController } from './media.controller';
@@ -11,8 +13,8 @@ import { GeocodificarService } from '../messages/geocodificar.service';
 import { BandejaService } from './bandeja.service';
 
 @Module({
-  imports: [AsignacionModule, OperacionModule, PlantillasModule, WhatsappModule],
+  imports: [AsignacionModule, OperacionModule, PlantillasModule, WhatsappModule, MediaModule],
   controllers: [BandejaController, MediaController, OperacionController, PlantillasController],
-  providers: [BandejaService, GeocodificarService],
+  providers: [BandejaService, GeocodificarService, ReenvioService],
 })
 export class ApiModule {}

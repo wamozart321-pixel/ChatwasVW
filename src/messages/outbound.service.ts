@@ -34,6 +34,8 @@ export class OutboundService {
     previewUrl?: boolean;
     /** Id de NUESTRA fila del mensaje citado, no el wamid de Meta. */
     respondeA?: string | null;
+    /** Se guarda en `raw`. Lo usa el reenvio para marcar el mensaje. */
+    marca?: Record<string, unknown>;
   }) {
     const waId = normalizarTelefono(params.a);
     if (waId.length < 8) throw new BadRequestException('numero invalido');
@@ -61,6 +63,7 @@ export class OutboundService {
       tipo: 'text',
       cuerpo: params.texto,
       userId: params.userId ?? null,
+      raw: params.marca,
       respondeA: citado.id,
       enviar: () =>
         this.graph.enviarTexto(waId, params.texto, params.previewUrl ?? true, citado.wamid),
@@ -78,6 +81,7 @@ export class OutboundService {
     nombre?: string;
     direccion?: string;
     userId?: string | null;
+    marca?: Record<string, unknown>;
   }) {
     const waId = normalizarTelefono(params.a);
     if (waId.length < 8) throw new BadRequestException('numero invalido');
@@ -115,6 +119,7 @@ export class OutboundService {
       tipo: 'location',
       cuerpo: etiqueta,
       userId: params.userId ?? null,
+      raw: params.marca,
       ubicacionLat: params.latitud,
       ubicacionLon: params.longitud,
       enviar: () =>
@@ -139,6 +144,7 @@ export class OutboundService {
     media: { url: string; mime: string; nombre: string; tamano: number };
     userId?: string | null;
     respondeA?: string | null;
+    marca?: Record<string, unknown>;
   }) {
     const waId = normalizarTelefono(params.a);
     if (waId.length < 8) throw new BadRequestException('numero invalido');
@@ -167,6 +173,7 @@ export class OutboundService {
       // encima aparece escrito al lado del reproductor.
       cuerpo: params.caption ?? (params.tipo === 'document' ? params.media.nombre : null),
       userId: params.userId ?? null,
+      raw: params.marca,
       media: params.media,
       respondeA: citado.id,
       enviar: () =>

@@ -108,7 +108,29 @@ export default function GrabarAudio({
 
     (async () => {
       try {
-        const pista = await navigator.mediaDevices.getUserMedia({ audio: true });
+        /*
+          `audio: true` a secas trae encendido el procesado de voz que usa el
+          navegador para las videollamadas. En el celular es agresivo: la
+          supresion de ruido esta pensada para borrar un ventilador de fondo y
+          en un local con gente y herramientas se come la voz, que sale casi
+          inaudible.
+
+          Se apaga la supresion y el cancelador de eco —que no hace falta: nadie
+          esta escuchando el otro lado mientras se graba— y se deja el control
+          automatico de ganancia, que es el que sube el volumen cuando alguien
+          habla bajo o lejos del telefono.
+
+          El precio es que ahora entra el ruido del local. Es el intercambio que
+          pediste, y es el correcto: un mensaje con ruido de fondo se entiende;
+          uno donde no se te oye, no.
+        */
+        const pista = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            noiseSuppression: false,
+            echoCancellation: false,
+            autoGainControl: true,
+          },
+        });
         if (!vivo) {
           pista.getTracks().forEach((t) => t.stop());
           return;

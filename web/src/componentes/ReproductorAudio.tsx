@@ -120,16 +120,30 @@ export default function ReproductorAudio({ url, mio }: { url: string; mio: boole
     <div className="flex w-60 max-w-full items-center gap-2.5">
       <audio ref={audioRef} src={url} onLoadedMetadata={alCargar} preload="metadata" />
 
-      <button
-        onClick={alternar}
-        className={`flex size-9 shrink-0 items-center justify-center rounded-full text-sm transition ${
-          mio
-            ? 'bg-white/25 text-white hover:bg-white/35'
-            : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-        }`}
-      >
-        {sonando ? '❚❚' : '▶'}
-      </button>
+      {/*
+        El tiempo va debajo del play y no al lado de la onda: ahi le robaba
+        ancho al dibujo, que es lo unico que crece con lo larga que sea la nota.
+      */}
+      <div className="flex shrink-0 flex-col items-center gap-0.5">
+        <button
+          onClick={alternar}
+          className={`flex size-9 items-center justify-center rounded-full text-sm transition ${
+            mio
+              ? 'bg-white/25 text-white hover:bg-white/35'
+              : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+          }`}
+        >
+          {sonando ? '❚❚' : '▶'}
+        </button>
+
+        <span
+          className={`font-mono text-[10px] tabular-nums ${
+            mio ? 'text-white/70' : 'text-slate-500'
+          }`}
+        >
+          {reloj(sonando || posicion > 0 ? restante : duracion)}
+        </span>
+      </div>
 
       {/* Clic en la onda para saltar a ese punto. */}
       <div
@@ -152,14 +166,6 @@ export default function ReproductorAudio({ url, mio }: { url: string; mio: boole
           />
         ))}
       </div>
-
-      <span
-        className={`shrink-0 font-mono text-[10px] tabular-nums ${
-          mio ? 'text-white/70' : 'text-slate-500'
-        }`}
-      >
-        {reloj(sonando || posicion > 0 ? restante : duracion)}
-      </span>
     </div>
   );
 }

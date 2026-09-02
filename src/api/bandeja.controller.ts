@@ -18,6 +18,7 @@ import { coordenadasDe, esEnlaceCorto, resolverEnlaceCorto } from '../messages/u
 import { AuthGuard } from '../auth/auth.guard';
 import type { Asesor } from '../auth/auth.service';
 import { OutboundService } from '../messages/outbound.service';
+import { ReenvioService } from '../messages/reenvio.service';
 import { BandejaService } from './bandeja.service';
 
 @Controller('api')
@@ -29,6 +30,7 @@ export class BandejaController {
     private readonly asignacion: AsignacionService,
     private readonly geo: GeocodificarService,
     private readonly conversaciones: ConversationsService,
+    private readonly reenvio: ReenvioService,
   ) {}
 
   @Get('conversaciones')
@@ -82,6 +84,23 @@ export class BandejaController {
       userId: asesor.id,
       respondeA: body?.respondeA ?? null,
     });
+  }
+
+  /**
+   * Manda el mismo mensaje a otra conversacion.
+   *
+   * No es el «reenviado» de WhatsApp —la Cloud API no lo tiene—: es un mensaje
+   * nuevo con el mismo contenido, marcado de nuestro lado para que en el hilo
+   * se entienda de donde salio.
+   */
+  @Post('mensajes/:messageId/reenviar')
+  reenviar(
+    @Param('messageId') messageId: string,
+    @Body() body: { conversationId: string },
+    @AsesorActual() asesor: Asesor,
+  ) {
+    if (!body?.conversationId) throw new BadRequestException('falta la conversacion de destino');
+    return this.reenvio.reenviar(messageId, body.conversationId, asesor.id);
   }
 
   /**

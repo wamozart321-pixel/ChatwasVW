@@ -277,6 +277,65 @@ async function main() {
     assert.equal(suelta.citado, null, 'invento una cita');
   });
 
+  await prueba('un texto se reenvia a otro chat', async () => {
+    // Meta rechaza el envio por la lista blanca del numero de prueba, pero la
+    // fila se escribe antes de llamar, que es lo que se mira aca.
+    const otra = await nuevaConversacion(tokenAndres, telAleatorio());
+
+    const { cuerpo: origen } = await api(tokenAndres, `/conversaciones/${conv}/mensajes`);
+    const texto = origen.find((m: any) => m.tipo === 'text' && m.cuerpo);
+    assert.ok(texto, 'no hay ningun texto que reenviar');
+
+    await api(tokenAndres, `/mensajes/${texto.id}/reenviar`, {
+      method: 'POST',
+      body: JSON.stringify({ conversationId: otra }),
+    });
+
+    const { cuerpo: destino } = await api(tokenAndres, `/conversaciones/${otra}/mensajes`);
+    const llegado = destino.find((m: any) => m.direccion === 'out' && m.cuerpo === texto.cuerpo);
+
+    assert.ok(llegado, 'el texto no llego a la otra conversacion');
+    assert.equal(llegado.reenviado, true, 'no quedo marcado como reenviado');
+  });
+
+  await prueba('un archivo se reenvia sin volver a subirlo a mano', async () => {
+    // El id de media que devuelve Meta vale 30 dias y no se guarda, asi que el
+    // reenvio parte de nuestra copia en disco y la vuelve a subir.
+    const otra = await nuevaConversacion(tokenAndres, telAleatorio());
+
+    await api(tokenAndres, `/mensajes/${messageId}/reenviar`, {
+      method: 'POST',
+      body: JSON.stringify({ conversationId: otra }),
+    });
+
+    const { cuerpo: destino } = await api(tokenAndres, `/conversaciones/${otra}/mensajes`);
+    const foto = destino.find((m: any) => m.direccion === 'out' && m.tipo === 'image');
+
+    assert.ok(foto, 'la foto no llego a la otra conversacion');
+    assert.equal(foto.reenviado, true, 'no quedo marcada como reenviada');
+    assert.equal(foto.mediaNombre, 'repuesto.png', 'perdio el nombre del archivo');
+  });
+
+  await prueba('no se reenvia un mensaje a su propia conversacion', async () => {
+    const { cuerpo: hilo } = await api(tokenAndres, `/conversaciones/${conv}/mensajes`);
+    const alguno = hilo.find((m: any) => m.cuerpo);
+
+    const { status } = await api(tokenAndres, `/mensajes/${alguno.id}/reenviar`, {
+      method: 'POST',
+      body: JSON.stringify({ conversationId: conv }),
+    });
+    assert.equal(status, 400, 'dejo reenviarlo a donde ya estaba');
+  });
+
+  await prueba('reenviar un mensaje que no existe da 404', async () => {
+    const { status } = await api(
+      tokenAndres,
+      '/mensajes/00000000-0000-0000-0000-000000000000/reenviar',
+      { method: 'POST', body: JSON.stringify({ conversationId: conv }) },
+    );
+    assert.equal(status, 404);
+  });
+
   await prueba('el hilo marca cuáles tienen archivo', async () => {
     const { cuerpo } = await api(tokenAndres, `/conversaciones/${conv}/mensajes`);
     const conFoto = cuerpo.find((m: any) => m.id === messageId);

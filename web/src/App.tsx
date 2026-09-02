@@ -26,6 +26,7 @@ import PanelUsuarios from './componentes/PanelUsuarios';
 import PanelMetricas from './componentes/PanelMetricas';
 import PreviaArchivo from './componentes/PreviaArchivo';
 import Redactor from './componentes/Redactor';
+import Reenviar from './componentes/Reenviar';
 import SelectorPlantilla from './componentes/SelectorPlantilla';
 
 const ESTADOS = [
@@ -69,6 +70,7 @@ export default function App() {
   const [ubicacionNegocio, setUbicacionNegocio] = useState<UbicacionNegocio | null>(null);
   const [porEliminar, setPorEliminar] = useState<Mensaje | null>(null);
   const [respondiendoA, setRespondiendoA] = useState<Mensaje | null>(null);
+  const [porReenviar, setPorReenviar] = useState<Mensaje | null>(null);
   const [eliminando, setEliminando] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
@@ -678,6 +680,7 @@ export default function App() {
                 puedeBorrar={(n) => n.autorId === asesor.id || asesor.rol !== 'asesor'}
                 onEliminarMensaje={setPorEliminar}
                 onResponder={setRespondiendoA}
+                onReenviar={setPorReenviar}
                 // Misma regla que aplica el servidor: un asesor saca los entrantes
                 // y los que mandó él. Si acá fuera más permisiva, el botón
                 // aparecería para terminar en un 403.
@@ -743,6 +746,19 @@ export default function App() {
           enviando={enviando}
           onEnviar={enviarArchivo}
           onCancelar={() => setArchivoPendiente(null)}
+        />
+      )}
+
+      {porReenviar && seleccionada && (
+        <Reenviar
+          mensaje={porReenviar}
+          deConversacion={seleccionada}
+          onCerrar={() => setPorReenviar(null)}
+          onListo={(aDonde) => {
+            setPorReenviar(null);
+            setAviso(`Reenviado a ${aDonde}`);
+            void cargarLista();
+          }}
         />
       )}
 

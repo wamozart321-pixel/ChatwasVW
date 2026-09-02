@@ -129,6 +129,7 @@ export interface Mensaje {
   errorMessage: string | null;
   enviadoPorId: string | null;
   esBot: boolean;
+  reenviado: boolean;
   cuando: string;
   eliminado: boolean;
   eliminadoPor: string | null;
@@ -304,6 +305,13 @@ export const api = {
     }),
 
   leida: (id: string) => pedir(`/conversaciones/${id}/leida`, { method: 'POST' }),
+
+  /** Manda el mismo mensaje a otra conversacion. */
+  reenviar: (messageId: string, conversationId: string) =>
+    pedir<Mensaje>(`/mensajes/${messageId}/reenviar`, {
+      method: 'POST',
+      body: JSON.stringify({ conversationId }),
+    }),
 
   // --- administracion de usuarios (solo rol admin) ---
   usuarios: () => pedir<Usuario[]>('/admin/usuarios'),

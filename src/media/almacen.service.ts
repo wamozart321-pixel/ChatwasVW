@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, resolve, sep } from 'node:path';
 import { env } from '../config/env';
 
@@ -80,6 +80,19 @@ export class AlmacenService {
   leer(relativa: string) {
     const absoluta = this.rutaDe(relativa);
     return absoluta ? createReadStream(absoluta) : null;
+  }
+
+  /**
+   * El archivo entero en memoria, para volver a subirlo a Meta.
+   *
+   * Lo usa el reenvio: el id de media que devolvio Meta al subirlo vive 30 dias
+   * y no se guarda, asi que reenviar una foto de hace un mes tiene que partir
+   * de nuestra copia. Son archivos de 16 MB como mucho, el tope de WhatsApp.
+   */
+  async leerEntero(relativa: string): Promise<Buffer | null> {
+    const absoluta = this.rutaDe(relativa);
+    if (!absoluta) return null;
+    return readFile(absoluta);
   }
 
   async tamano(relativa: string): Promise<number | null> {
