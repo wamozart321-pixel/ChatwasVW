@@ -303,7 +303,7 @@ export default function ListaChats({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
         {propias.length === 0 && fuera.length === 0 && (
           <p className="px-4 py-8 text-center text-sm text-slate-400">
             {etiquetaFiltro
