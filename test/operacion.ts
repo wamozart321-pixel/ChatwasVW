@@ -258,6 +258,41 @@ async function main() {
       'fuera del rango que acepta WhatsApp',
     );
   });
+  await pruebaLocal('el nombre del archivo no se escribe como texto, salvo en un documento', async () => {
+    // El nombre de una nota de voz lo inventa la bandeja
+    // («nota-de-voz-2026-08-27221916.ogg»): escrito al lado del reproductor no
+    // le dice nada a nadie. El de un documento si es la informacion util — sin
+    // el, en la lista de chats la vista previa quedaria vacia.
+    //
+    // Solo local: contra el numero de prueba de Meta el envio se rechaza por la
+    // lista blanca, que es justo lo que hace falta (la fila se escribe ANTES de
+    // llamar a Meta). Con el numero de produccion, en cambio, un telefono
+    // inventado podria ser el de alguien de verdad.
+    async function mandar(nombre: string, mime: string, datos: Buffer) {
+      const fd = new FormData();
+      fd.append('archivo', new Blob([datos], { type: mime }), nombre);
+      await fetch(`${BASE}/api/conversaciones/${conv}/media`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokenAndres}` },
+        body: fd,
+      });
+    }
+
+    await mandar('captura-2026.png', 'image/png', PNG);
+    await mandar('cotizacion-4321.pdf', 'application/pdf', Buffer.from('%PDF-1.4\n%%EOF\n'));
+
+    const { cuerpo: hilo } = await api(tokenAndres, `/conversaciones/${conv}/mensajes`);
+    const salientes = hilo.filter((m: any) => m.direccion === 'out');
+
+    const foto = salientes.find((m: any) => m.mediaNombre === 'captura-2026.png');
+    assert.ok(foto, 'no quedo la foto en el hilo');
+    assert.equal(foto.cuerpo ?? null, null, 'la foto escribe el nombre del archivo como texto');
+
+    const doc = salientes.find((m: any) => m.mediaNombre === 'cotizacion-4321.pdf');
+    assert.ok(doc, 'no quedo el documento en el hilo');
+    assert.equal(doc.cuerpo, 'cotizacion-4321.pdf', 'el documento perdio su nombre');
+  });
+
 
   console.log('\nnotas internas\n');
 

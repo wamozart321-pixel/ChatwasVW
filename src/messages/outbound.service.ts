@@ -151,7 +151,12 @@ export class OutboundService {
     return this.despachar({
       conversationId: conversacion.id,
       tipo: params.tipo,
-      cuerpo: params.caption ?? params.media.nombre,
+      // Para un documento el nombre del archivo ES la informacion util: sin el,
+      // en la lista de chats la vista previa quedaria vacia. Para una foto o
+      // una nota de voz no: ahi el nombre es un invento nuestro
+      // («nota-de-voz-2026-08-27221916.ogg») que no le dice nada a nadie y
+      // encima aparece escrito al lado del reproductor.
+      cuerpo: params.caption ?? (params.tipo === 'document' ? params.media.nombre : null),
       userId: params.userId ?? null,
       media: params.media,
       enviar: () =>
@@ -198,7 +203,7 @@ export class OutboundService {
   private async despachar(params: {
     conversationId: string;
     tipo: string;
-    cuerpo: string;
+    cuerpo: string | null;
     userId: string | null;
     raw?: Record<string, unknown>;
     media?: { url: string; mime: string; nombre: string; tamano: number };

@@ -70,6 +70,29 @@ function colorDe(telefono: string): string {
   return COLORES_AVATAR[suma % COLORES_AVATAR.length]!;
 }
 
+/**
+ * Que decir de un mensaje que no tiene texto.
+ *
+ * Una nota de voz o una foto sin epigrafe no tienen cuerpo. Antes se guardaba
+ * el nombre del archivo para llenar el hueco, pero era un nombre inventado por
+ * nosotros —«nota-de-voz-2026-08-27221916.ogg»— que no le dice nada a nadie y
+ * ademas aparecia escrito al lado del reproductor.
+ */
+const SIN_TEXTO: Record<string, string> = {
+  audio: '🎤 Nota de voz',
+  image: '📷 Foto',
+  video: '🎥 Video',
+  sticker: '🙂 Sticker',
+  document: '📄 Documento',
+  location: '📍 Ubicación',
+  contacts: '👤 Contacto',
+};
+
+function vistaPreviaDe(texto: string | null, tipo: string | null): string {
+  if (texto?.trim()) return texto;
+  return SIN_TEXTO[tipo ?? ''] ?? 'Sin mensajes';
+}
+
 function iniciales(nombre: string | null, telefono: string): string {
   if (!nombre) return telefono.slice(-2);
   return nombre
@@ -348,7 +371,7 @@ export default function ListaChats({
                 <div className="mt-0.5 flex items-center gap-1.5">
                   {c.vistaPreviaDireccion === 'out' && <Checks status={c.vistaPreviaEstado} />}
                   <span className="truncate text-xs text-slate-500">
-                    {c.vistaPrevia ?? 'Sin mensajes'}
+                    {vistaPreviaDe(c.vistaPrevia, c.vistaPreviaTipo)}
                   </span>
                   {c.noLeidos > 0 && (
                     <span className="ml-auto shrink-0 rounded-full bg-marca-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">

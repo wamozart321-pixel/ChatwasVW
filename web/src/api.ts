@@ -17,6 +17,7 @@ export interface Conversacion {
   ventanaVence: string | null;
   ventanaAbierta: boolean;
   vistaPrevia: string | null;
+  vistaPreviaTipo: string | null;
   vistaPreviaDireccion: 'in' | 'out' | null;
   vistaPreviaEstado: string | null;
   asignadoId: string | null;

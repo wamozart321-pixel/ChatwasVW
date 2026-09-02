@@ -55,6 +55,7 @@ export interface FilaBandeja {
   ventanaVence: string | null;
   ventanaAbierta: boolean;
   vistaPrevia: string | null;
+  vistaPreviaTipo: string | null;
   vistaPreviaDireccion: string | null;
   vistaPreviaEstado: string | null;
   asignadoId: string | null;
@@ -110,6 +111,9 @@ export class BandejaService {
         c.window_expires_at            AS "ventanaVence",
         coalesce(c.window_expires_at > now(), false) AS "ventanaAbierta",
         m.cuerpo                       AS "vistaPrevia",
+        -- El tipo va con el texto: un audio o una foto sin epigrafe no tienen
+        -- cuerpo, y la lista mostraria un renglon vacio.
+        m.tipo                         AS "vistaPreviaTipo",
         m.direccion                    AS "vistaPreviaDireccion",
         m.status                       AS "vistaPreviaEstado",
         c.assigned_to                  AS "asignadoId",
@@ -128,7 +132,7 @@ export class BandejaService {
       LEFT JOIN users u ON u.id = c.assigned_to
       LEFT JOIN LATERAL (
         -- Un mensaje eliminado no puede seguir siendo la vista previa del chat.
-        SELECT cuerpo, direccion, status
+        SELECT cuerpo, tipo, direccion, status
           FROM messages
          WHERE conversation_id = c.id
            AND eliminado_en IS NULL
