@@ -27,9 +27,9 @@
     "test:bot": "tsx test/bot.ts",
     "escritorio": "npm --prefix escritorio run dev",
     "escritorio:empaquetar": "npm --prefix escritorio run empaquetar",
-    "escritorio:icono": "node escritorio/recursos/generar-icono.js",
     "test:admin": "tsx test/admin.ts",
-    "limpiar-pruebas": "tsx scripts/limpiar-pruebas.ts"
+    "limpiar-pruebas": "tsx scripts/limpiar-pruebas.ts",
+    "iconos": "node recursos/generar-iconos.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
