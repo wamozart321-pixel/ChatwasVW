@@ -71,6 +71,7 @@ export default function App() {
   const [porEliminar, setPorEliminar] = useState<Mensaje | null>(null);
   const [respondiendoA, setRespondiendoA] = useState<Mensaje | null>(null);
   const [porReenviar, setPorReenviar] = useState<Mensaje | null>(null);
+  const [verContacto, setVerContacto] = useState(false);
   const [eliminando, setEliminando] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
@@ -310,6 +311,7 @@ export default function App() {
     // Al cambiar de chat la cita se descarta: si no, se responderia en una
     // conversacion citando un mensaje de otra.
     setRespondiendoA(null);
+    setVerContacto(false);
 
     if (!seleccionada) {
       setMensajes([]);
@@ -635,6 +637,20 @@ export default function App() {
 
                 <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                   {/*
+                    La columna de la derecha —etiquetas, notas, datos— no cabe
+                    por debajo de 1280 px y quedaba escondida: en el celular no
+                    habia forma de etiquetar una conversacion. Este boton la
+                    abre a pantalla completa.
+                  */}
+                  <button
+                    onClick={() => setVerContacto(true)}
+                    title="Etiquetas y datos del contacto"
+                    className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600 transition hover:bg-slate-200 xl:hidden"
+                  >
+                    🏷
+                  </button>
+
+                  {/*
                     Abierto y Pendiente son estados; Resolver es una ACCION. Con
                     los tres iguales nadie cerraba nada y "Abierto" se volvia un
                     cajon donde cae todo y no significa nada.
@@ -752,6 +768,24 @@ export default function App() {
           onEtiquetasCambiaron={refrescarEtiquetas}
         />
       </div>
+
+      {/*
+        El mismo panel, a pantalla completa, para cuando no hay lugar para la
+        columna. Es el mismo componente: si se le agrega algo —un dato, una
+        accion— aparece en los dos lados sin acordarse de nada.
+      */}
+      {verContacto && detalle && (
+        <div className="fixed inset-0 z-40 bg-white xl:hidden">
+          <PanelContacto
+            detalle={detalle}
+            yo={asesor}
+            onAgregarNota={agregarNota}
+            onEtiquetasCambiaron={refrescarEtiquetas}
+            onCerrar={() => setVerContacto(false)}
+            className="h-full w-full overflow-y-auto bg-white pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+          />
+        </div>
+      )}
 
       {archivoPendiente && (
         <PreviaArchivo

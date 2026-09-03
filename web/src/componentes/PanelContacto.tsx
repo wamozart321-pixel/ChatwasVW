@@ -226,20 +226,44 @@ export default function PanelContacto({
   yo,
   onAgregarNota,
   onEtiquetasCambiaron,
+  className,
+  onCerrar,
 }: {
   detalle: DetalleConversacion | null;
   yo: Asesor;
   onAgregarNota: (cuerpo: string) => Promise<void>;
   onEtiquetasCambiaron: () => void;
+  /**
+   * Como se coloca el panel. Por defecto es la columna fija de la derecha; en
+   * un celular no cabe y se abre a pantalla completa, con las mismas partes
+   * adentro.
+   */
+  className?: string;
+  /** Solo a pantalla completa: sin esto no habria como volver al chat. */
+  onCerrar?: () => void;
 }) {
+  const caja = className ?? 'hidden w-72 shrink-0 overflow-y-auto border-l border-slate-200 bg-white xl:block';
+
   if (!detalle) {
-    return <aside className="hidden w-72 shrink-0 border-l border-slate-200 bg-white xl:block" />;
+    return <aside className={caja} />;
   }
 
   const inicial = (detalle.contacto ?? detalle.telefono).trim()[0]?.toUpperCase() ?? '?';
 
   return (
-    <aside className="hidden w-72 shrink-0 overflow-y-auto border-l border-slate-200 bg-white xl:block">
+    <aside className={caja}>
+      {onCerrar && (
+        <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-slate-100 bg-white px-3 py-2">
+          <button
+            onClick={onCerrar}
+            className="rounded-lg px-1.5 py-1 text-lg text-slate-500 transition hover:bg-slate-100"
+          >
+            ←
+          </button>
+          <span className="text-sm font-medium text-slate-700">Datos del contacto</span>
+        </div>
+      )}
+
       <div className="flex flex-col items-center border-b border-slate-100 px-5 py-6">
         <div className="flex size-16 items-center justify-center rounded-full bg-slate-200 text-xl font-semibold text-slate-600">
           {inicial}
