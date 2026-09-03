@@ -46,3 +46,18 @@ body {
 *::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* Mantener el dedo sobre un mensaje abre sus acciones. Sin esto, Android
+   aprovecha la misma pulsacion para empezar a seleccionar el texto y dibuja
+   sus manijas de seleccion ENCIMA del menu, que es nativo y va por delante de
+   la pagina.
+
+   Solo con puntero grueso: en un computador el texto de un mensaje se tiene
+   que poder seleccionar y copiar como siempre. */
+@media (pointer: coarse) {
+  .burbuja-mensaje {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}

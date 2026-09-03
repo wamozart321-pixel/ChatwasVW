@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Cita, Mensaje, Nota } from '../api';
 import Media from './Media';
 
@@ -63,6 +63,102 @@ function Citado({ cita, mio }: { cita: Cita; mio: boolean }) {
   );
 }
 
+/**
+ * Cuanto hay que mantener el dedo para que aparezcan las acciones.
+ *
+ * Medio segundo es lo que usa WhatsApp: menos y se dispara al desplazarse por
+ * el hilo, mas y uno cree que no funciono.
+ */
+const PULSACION_LARGA_MS = 500;
+
+/**
+ * Las acciones de un mensaje, en una hoja que sube desde abajo.
+ *
+ * En el computador los botones aparecen al pasar el mouse por encima, pero en
+ * un celular no hay mouse: sin esto, responder, reenviar y eliminar no existian
+ * en el telefono. Se abre manteniendo el dedo sobre el mensaje.
+ *
+ * Sube desde abajo y no sale al lado de la burbuja porque en una pantalla
+ * angosta un menu flotante junto al mensaje queda medio fuera, y porque abajo
+ * es donde el pulgar llega sin estirarse.
+ */
+function HojaDeAcciones({
+  mensaje,
+  puedeEliminar,
+  onResponder,
+  onReenviar,
+  onEliminar,
+  onCerrar,
+}: {
+  mensaje: Mensaje;
+  puedeEliminar: boolean;
+  onResponder: () => void;
+  onReenviar: () => void;
+  onEliminar: () => void;
+  onCerrar: () => void;
+}) {
+  // Sin wamid Meta no conoce el mensaje, asi que no se puede citar.
+  const sePuedeResponder = !mensaje.eliminado && !!mensaje.waMessageId;
+  const sePuedeReenviar = !mensaje.eliminado;
+
+  const opciones = [
+    sePuedeResponder && { icono: '↩', texto: 'Responder', al: onResponder, rojo: false },
+    sePuedeReenviar && { icono: '↪', texto: 'Reenviar a otro chat', al: onReenviar, rojo: false },
+    puedeEliminar && { icono: '🗑', texto: 'Eliminar de la bandeja', al: onEliminar, rojo: true },
+  ].filter(Boolean) as { icono: string; texto: string; al: () => void; rojo: boolean }[];
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end bg-black/40" onClick={onCerrar}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full rounded-t-2xl bg-white pb-[env(safe-area-inset-bottom)] shadow-xl"
+      >
+        <p className="truncate border-b border-slate-100 px-4 py-3 text-xs text-slate-400">
+          {mensaje.cuerpo?.trim() || SIN_TEXTO_ACCIONES[mensaje.tipo] || 'Mensaje'}
+        </p>
+
+        {opciones.length === 0 ? (
+          <p className="px-4 py-4 text-sm text-slate-400">No hay nada que hacer con este mensaje</p>
+        ) : (
+          opciones.map((o) => (
+            <button
+              key={o.texto}
+              onClick={() => {
+                onCerrar();
+                o.al();
+              }}
+              className={`flex w-full items-center gap-3 px-4 py-3.5 text-left text-sm transition active:bg-slate-100 ${
+                o.rojo ? 'text-red-600' : 'text-slate-700'
+              }`}
+            >
+              <span className="w-5 text-center">{o.icono}</span>
+              {o.texto}
+            </button>
+          ))
+        )}
+
+        <button
+          onClick={onCerrar}
+          className="w-full border-t border-slate-100 px-4 py-3 text-sm text-slate-500 active:bg-slate-100"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Como nombrar un mensaje sin texto dentro de la hoja de acciones. */
+const SIN_TEXTO_ACCIONES: Record<string, string> = {
+  audio: '🎤 Nota de voz',
+  image: '📷 Foto',
+  video: '🎥 Video',
+  sticker: '🙂 Sticker',
+  document: '📄 Documento',
+  location: '📍 Ubicación',
+  contacts: '👤 Contacto',
+};
+
 function Checks({ status }: { status: Mensaje['status'] }) {
   if (status === 'failed') return <span className="text-red-200">✕</span>;
   if (status === 'queued') return <span className="opacity-60">🕘</span>;
@@ -95,6 +191,27 @@ export default function Hilo({
   onReenviar: (m: Mensaje) => void;
 }) {
   const finRef = useRef<HTMLDivElement>(null);
+  const [accionesDe, setAccionesDe] = useState<Mensaje | null>(null);
+  const relojRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const soltar = () => {
+    if (relojRef.current) clearTimeout(relojRef.current);
+    relojRef.current = null;
+  };
+
+  /**
+   * Mantener el dedo sobre un mensaje abre sus acciones.
+   *
+   * Se ignora si el dedo cayo sobre un control —el play de una nota de voz, el
+   * enlace de una ubicacion, una foto— porque ahi el dedo se queda quieto un
+   * momento por motivos normales y saltaria el menu sin que nadie lo pidiera.
+   */
+  function empezarPulsacion(m: Mensaje, e: React.TouchEvent) {
+    if ((e.target as HTMLElement).closest('button, a, input, audio, video, img')) return;
+
+    soltar();
+    relojRef.current = setTimeout(() => setAccionesDe(m), PULSACION_LARGA_MS);
+  }
 
   // Baja al ultimo mensaje al abrir el chat y cuando entra uno nuevo.
   useEffect(() => {
@@ -133,10 +250,11 @@ export default function Hilo({
                       Nota interna · {n.autor ?? 'alguien'}
                     </span>
                     <span className="text-[10px] text-amber-500">{hora(n.cuando)}</span>
+                    {/* Visible siempre en celular: ahi no hay mouse que pasar por encima. */}
                     {puedeBorrar(n) && (
                       <button
                         onClick={() => onBorrarNota(n.id)}
-                        className="ml-auto text-[10px] text-amber-400 opacity-0 transition group-hover:opacity-100 hover:text-amber-700"
+                        className="ml-auto text-[10px] text-amber-400 transition hover:text-amber-700 md:opacity-0 md:group-hover:opacity-100"
                       >
                         borrar
                       </button>
@@ -220,7 +338,11 @@ export default function Hilo({
 
               <div
                 id={`mensaje-${m.id}`}
-                className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm shadow-sm transition md:max-w-[70%] ${
+                onTouchStart={(e) => empezarPulsacion(m, e)}
+                onTouchEnd={soltar}
+                onTouchMove={soltar}
+                onTouchCancel={soltar}
+                className={`burbuja-mensaje max-w-[85%] rounded-2xl px-3.5 py-2 text-sm shadow-sm transition md:max-w-[70%] ${
                   mio
                     ? m.status === 'failed'
                       ? 'bg-red-500 text-white'
@@ -361,6 +483,17 @@ export default function Hilo({
       })}
 
       <div ref={finRef} />
+
+      {accionesDe && (
+        <HojaDeAcciones
+          mensaje={accionesDe}
+          puedeEliminar={puedeEliminar(accionesDe)}
+          onResponder={() => onResponder(accionesDe)}
+          onReenviar={() => onReenviar(accionesDe)}
+          onEliminar={() => onEliminarMensaje(accionesDe)}
+          onCerrar={() => setAccionesDe(null)}
+        />
+      )}
     </div>
   );
 }
