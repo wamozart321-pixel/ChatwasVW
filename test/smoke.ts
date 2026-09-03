@@ -29,7 +29,7 @@ import { coordenadasDe, esEnlaceCorto } from '../src/messages/ubicacion';
 import { aE164 } from '../src/conversations/conversations.service';
 import { parsearDireccionCo } from '../src/messages/direccion-co';
 import { barrasDe } from '../web/src/componentes/onda';
-import { esMasNueva } from '../web/src/componentes/version';
+import { appInstalada, esMasNueva } from '../web/src/componentes/version';
 
 let fallos = 0;
 
@@ -555,16 +555,35 @@ async function main() {
 
   console.log('\navisos de version\n');
 
-  await prueba('la app se reconoce por el User-Agent', () => {
-    // El empaquetado escribe la version ahi: es la unica via sin plugins,
-    // porque la pagina la sirve el servidor y no esta dentro del .apk.
-    const conApp =
-      'Mozilla/5.0 (Linux; Android 14; SM-A546E; wv) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36 WhatsWV/0.1.0';
-    const navegador =
-      'Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36';
+  const UA = {
+    apkNuevo:
+      'Mozilla/5.0 (Linux; Android 14; SM-A546E; wv) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36 WhatsWV/0.2.0',
+    apkViejo:
+      'Mozilla/5.0 (Linux; Android 14; SM-A546E; wv) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36',
+    navegadorCelular:
+      'Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36',
+    pc: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36',
+  };
 
-    assert.equal(conApp.match(/WhatsWV\/(\d+\.\d+\.\d+)/)?.[1], '0.1.0');
-    assert.equal(navegador.match(/WhatsWV\/(\d+\.\d+\.\d+)/)?.[1], undefined);
+  await prueba('reconoce la app de Android y su version', () => {
+    assert.deepEqual(appInstalada(UA.apkNuevo), { esApp: true, version: '0.2.0' });
+  });
+
+  await prueba('reconoce una app anterior a la 0.2.0, que no dice su version', () => {
+    // Las primeras se empaquetaron sin la marca en el User-Agent. Si no se las
+    // reconociera, justo los telefonos con la app mas vieja —los que mas
+    // necesitan el aviso— serian los unicos que nunca lo verian.
+    assert.deepEqual(appInstalada(UA.apkViejo), { esApp: true, version: null });
+  });
+
+  await prueba('un navegador no es la app', () => {
+    // El aviso no tiene sentido ahi: no hay nada instalado que actualizar.
+    assert.equal(appInstalada(UA.navegadorCelular).esApp, false);
+    assert.equal(appInstalada(UA.pc).esApp, false);
+  });
+
+  await prueba('a una app sin version se le ofrece cualquiera', () => {
+    assert.equal(esMasNueva('0.2.0', null), true);
   });
 
   await prueba('0.10.0 es mas nueva que 0.9.0', () => {

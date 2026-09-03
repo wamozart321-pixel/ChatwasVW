@@ -37,6 +37,17 @@ const SERVIDOR_POR_DEFECTO = 'https://bandeja.chatwasvw.com';
 let ventana = null;
 let bandeja = null;
 let cerrandoDeVerdad = false;
+
+/**
+ * Hay una version bajada esperando a instalarse.
+ *
+ * Importa porque cerrar la ventana NO cierra la app: la esconde en la bandeja
+ * del sistema. Con `autoInstallOnAppQuit` a secas, la actualizacion esperaba a
+ * un «salir» que casi nunca ocurre —el unico esta en un menu que Windows
+ * esconde— y el asesor se quedaba con la version vieja para siempre, despues de
+ * haber leido que se instalaba al cerrar.
+ */
+let actualizacionLista = false;
 let sinLeer = 0;
 
 // --- configuración -----------------------------------------------------------
@@ -205,6 +216,16 @@ function crearVentana() {
   ventana.on('close', (e) => {
     if (cerrandoDeVerdad) return;
     e.preventDefault();
+
+    // Con una actualizacion esperando, cerrar la ventana la instala: es lo que
+    // el aviso promete y lo que cualquiera espera al cerrar algo. Se instala y
+    // la app vuelve a abrirse sola.
+    if (actualizacionLista) {
+      cerrandoDeVerdad = true;
+      autoUpdater.quitAndInstall();
+      return;
+    }
+
     ventana.hide();
   });
 
@@ -339,6 +360,7 @@ function prepararActualizador() {
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on('update-downloaded', (info) => {
+    actualizacionLista = true;
     if (!ventana) return;
 
     dialog
@@ -347,8 +369,8 @@ function prepararActualizador() {
         title: 'Actualización lista',
         message: `Hay una versión nueva de WhatsWV (${info.version}).`,
         detail:
-          'Ya está descargada. Se instala sola la próxima vez que cierres la app, ' +
-          'o podés reiniciar ahora si no estás en medio de una conversación.',
+          'Ya está descargada. Se instala al cerrar esta ventana, o podés ' +
+          'reiniciar ahora si no estás en medio de una conversación.',
         buttons: ['Reiniciar ahora', 'Más tarde'],
         defaultId: 1,
         cancelId: 1,

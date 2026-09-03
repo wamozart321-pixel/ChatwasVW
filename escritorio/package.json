@@ -1,6 +1,6 @@
 {
   "name": "whatswv-escritorio",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "WhatsWV - bandeja de WhatsApp para el equipo, como app de Windows",
   "main": "principal.js",

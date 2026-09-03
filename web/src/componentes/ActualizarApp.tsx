@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { esMasNueva, versionDeLaApp } from './version';
+import { appInstalada, esMasNueva } from './version';
 
 /**
  * Avisa cuando hay una versión nueva de la app de Android.
@@ -39,10 +39,10 @@ const DESCARTADA = 'whatswv.version_descartada';
 
 export default function ActualizarApp() {
   const [nueva, setNueva] = useState<Manifiesto | null>(null);
-  const instalada = versionDeLaApp(navigator.userAgent);
+  const { esApp, version: instalada } = appInstalada(navigator.userAgent);
 
   const revisar = useCallback(async () => {
-    if (!instalada) return;
+    if (!esApp) return;
 
     try {
       // Sin caché: el navegador guardaría el manifiesto y la app seguiría
@@ -59,7 +59,7 @@ export default function ActualizarApp() {
       // Sin internet o el servidor caído: no es algo que haya que contarle al
       // asesor. Se vuelve a mirar en la próxima vuelta.
     }
-  }, [instalada]);
+  }, [esApp, instalada]);
 
   useEffect(() => {
     void revisar();
@@ -72,7 +72,8 @@ export default function ActualizarApp() {
   return (
     <div className="flex items-center gap-3 border-b border-marca-100 bg-marca-50 px-4 py-2 text-xs text-marca-700">
       <span className="min-w-0 flex-1">
-        Hay una versión nueva de la app ({nueva.version}). Tenés la {instalada}.
+        Hay una versión nueva de la app ({nueva.version}).
+        {instalada ? ` Tenés la ${instalada}.` : ' La tuya es anterior a la 0.2.0.'}
       </span>
 
       <a
