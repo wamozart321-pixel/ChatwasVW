@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { alAbrirConversacion, avisar, enEscritorio, reportarSinLeer } from './escritorio';
+import {
+  alAbrirConversacion,
+  avisar,
+  buscarActualizacion,
+  enEscritorio,
+  reportarSinLeer,
+} from './escritorio';
 import type { Socket } from 'socket.io-client';
 import {
   api,
@@ -530,6 +536,22 @@ export default function App() {
         </span>
 
         <div className="relative ml-2 flex items-center gap-1.5 border-l border-slate-200 pl-2 sm:ml-4 sm:gap-3 sm:pl-4">
+          {/*
+            Solo en la app de Windows. La opcion ya existia en el menu de la
+            bandeja del sistema, pero Windows la esconde detras del `^` y nadie
+            la encuentra; aca esta a la vista. En el navegador no se dibuja
+            porque no hay nada que actualizar: la bandeja se recarga sola.
+          */}
+          {enEscritorio() && (
+            <button
+              onClick={buscarActualizacion}
+              title="Buscar actualizaciones"
+              className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+            >
+              ⟳
+            </button>
+          )}
+
           <button
             onClick={() => setVerMetricas(true)}
             className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50"

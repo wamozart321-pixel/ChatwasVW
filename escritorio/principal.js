@@ -152,11 +152,27 @@ function crearBandeja() {
   actualizarBandeja();
 }
 
+/**
+ * Cuando se reviso por ultima vez. Sirve para no repetir la consulta si alguien
+ * hace clic tres veces seguidas en el icono de la bandeja.
+ */
+let ultimaRevision = 0;
+const ESPERA_ENTRE_REVISIONES_MS = 60_000;
+
 function mostrarVentana() {
   if (!ventana) return;
   if (ventana.isMinimized()) ventana.restore();
   ventana.show();
   ventana.focus();
+
+  // Cada vez que se abre, no solo al arrancar el proceso. La app se queda en la
+  // bandeja del sistema en vez de cerrarse, asi que puede pasar dias sin
+  // reiniciarse: sin esto, «abrirla» no revisaba nada y habia que esperar al
+  // temporizador.
+  if (Date.now() - ultimaRevision > ESPERA_ENTRE_REVISIONES_MS) {
+    ultimaRevision = Date.now();
+    buscarActualizacion();
+  }
 }
 
 // --- ventanas ----------------------------------------------------------------
@@ -269,6 +285,13 @@ ipcMain.on('whatswv:aviso', (_e, datos) => {
   });
 
   aviso.show();
+});
+
+ipcMain.handle('whatswv:buscar-actualizacion', async () => {
+  // A mano: asi avisa tambien cuando NO hay nada nuevo. Si no, el asesor toca
+  // el boton, no pasa nada visible y no sabe si funciono.
+  ultimaRevision = Date.now();
+  buscarActualizacion(true);
 });
 
 ipcMain.handle('whatswv:guardar-servidor', async (_e, url) => {
@@ -398,10 +421,10 @@ if (!app.requestSingleInstanceLock()) {
     prepararActualizador();
     await abrirBandeja();
 
-    // La primera revisión va con retraso para no competir con la carga de la
-    // bandeja, y después cada 4 horas: alcanza para que una corrección llegue
-    // el mismo día sin estar golpeando el servidor.
-    setTimeout(() => buscarActualizacion(), 30_000);
+    // Lo que de verdad dispara la revisión es abrir la ventana, en
+    // `mostrarVentana`. Esto de acá es la red de seguridad para la máquina que
+    // deja WhatsWV abierto toda la semana y nunca lo «abre»: sin ella, esa
+    // máquina no revisaría jamás.
     setInterval(() => buscarActualizacion(), 4 * 60 * 60 * 1000);
 
     // Si el servidor se cae mientras el asesor trabaja, la pantalla propia

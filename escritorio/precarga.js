@@ -26,6 +26,15 @@ contextBridge.exposeInMainWorld('whatswv', {
     ipcRenderer.on('whatswv:abrir-conversacion', (_e, id) => fn(id));
   },
 
+  /**
+   * Revisa si hay version nueva.
+   *
+   * Existe porque el menu que ya la tenia vive en la bandeja del sistema, que
+   * Windows esconde detras del `^` y casi nadie despliega. Desde la app se
+   * encuentra.
+   */
+  buscarActualizacion: () => ipcRenderer.invoke('whatswv:buscar-actualizacion'),
+
   guardarServidor: (url) => ipcRenderer.invoke('whatswv:guardar-servidor', url),
   reintentar: () => ipcRenderer.invoke('whatswv:reintentar'),
   cambiarServidor: () => ipcRenderer.invoke('whatswv:cambiar-servidor'),

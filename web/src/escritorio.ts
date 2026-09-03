@@ -10,6 +10,7 @@ interface PuenteEscritorio {
   sinLeer(cantidad: number): void;
   avisar(datos: { titulo: string; cuerpo: string; conversationId?: string }): void;
   alAbrirConversacion(fn: (id: string) => void): void;
+  buscarActualizacion?(): Promise<void>;
 }
 
 declare global {
@@ -20,6 +21,17 @@ declare global {
 
 export function enEscritorio(): boolean {
   return typeof window !== 'undefined' && window.whatswv?.escritorio === true;
+}
+
+/**
+ * Le pide a la app que revise si hay versión nueva.
+ *
+ * La respuesta la da la app con sus propios cuadros de diálogo —«ya estás al
+ * día», o el aviso de que se está bajando—, así que acá no hay nada que
+ * mostrar.
+ */
+export function buscarActualizacion(): void {
+  void window.whatswv?.buscarActualizacion?.();
 }
 
 /** Cuántas conversaciones propias tienen mensajes sin leer, para el globito. */
