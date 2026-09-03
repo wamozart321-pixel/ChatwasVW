@@ -213,6 +213,29 @@ function sobreColor(capa, [r, g, b]) {
   return { ancho: capa.ancho, alto: capa.alto, pixeles: salida };
 }
 
+/**
+ * Coloca el dibujo centrado y mas chico dentro de un lienzo transparente.
+ *
+ * Lo pide el icono adaptativo de Android. El sistema recorta las dos capas con
+ * la forma del telefono —circulo, cuadrado redondeado, gota— y de un lienzo de
+ * 108 solo se ve el centro de 72, o sea el 66%. Un dibujo que ocupe justo ese
+ * 66% queda TOCANDO el borde del recorte, que es lo que se ve como «apretado».
+ * Dejandolo en la mitad del lienzo, el globo respira en cualquier forma.
+ */
+function conMargen(img, lado, ocupacion) {
+  const dentro = Math.round(lado * ocupacion);
+  const chico = redimensionar(img, dentro);
+  const desde = Math.round((lado - dentro) / 2);
+
+  const salida = Buffer.alloc(lado * lado * 4);
+  for (let y = 0; y < dentro; y++) {
+    const destino = ((y + desde) * lado + desde) * 4;
+    chico.pixeles.copy(salida, destino, y * dentro * 4, (y + 1) * dentro * 4);
+  }
+
+  return { ancho: lado, alto: lado, pixeles: salida };
+}
+
 /** El recuadro que ocupa el dibujo, para poder recortarlo sin adivinar. */
 function recuadroDelDibujo(img, margen = 0) {
   let minX = img.ancho;
@@ -330,6 +353,7 @@ module.exports = {
   redimensionar,
   soloElDibujo,
   sobreColor,
+  conMargen,
   recuadroDelDibujo,
   codificarPng,
   codificarIco,

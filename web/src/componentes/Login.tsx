@@ -43,9 +43,7 @@ export default function Login({ onEntrar }: { onEntrar: (asesor: Asesor) => void
         className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-sm"
       >
         <div className="mb-6 flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-marca-500 text-lg font-bold text-white">
-            W
-          </div>
+          <img src="/icono-192.png" alt="WhatsWV" className="size-10 shrink-0 rounded-xl" />
           <div>
             <h1 className="text-lg font-semibold text-slate-900">WhatsWV</h1>
             <p className="text-xs text-slate-500">Bandeja compartida</p>

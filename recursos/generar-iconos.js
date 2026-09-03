@@ -19,6 +19,7 @@ const {
   soloElDibujo,
   sobreColor,
   recuadroDelDibujo,
+  conMargen,
   codificarPng,
   codificarIco,
 } = require('./imagen');
@@ -63,10 +64,18 @@ const DENSIDADES = {
 
 const res = join(RAIZ, 'movil', 'android', 'app', 'src', 'main', 'res');
 
+/**
+ * Cuánto del lienzo ocupa el dibujo en el ícono de Android.
+ *
+ * De un lienzo de 108, el sistema sólo muestra el centro de 72 —el 66%— y lo
+ * recorta con la forma del teléfono. El dibujo del logo ya ocupa el 65% del
+ * archivo, así que dejándolo tal cual queda TOCANDO el borde del recorte. Al
+ * 50% respira en cualquier forma: círculo, cuadrado redondeado o gota.
+ */
+const OCUPACION_ANDROID = 0.5;
+
 for (const [carpeta, lado] of Object.entries(DENSIDADES)) {
-  // Sin recortar: el margen del logo ES la zona segura que Android necesita
-  // para recortar en círculo sin comerse el dibujo.
-  const capa = soloElDibujo(redimensionar(logo, lado));
+  const capa = conMargen(soloElDibujo(redimensionar(logo, lado * 2, recorte)), lado, OCUPACION_ANDROID);
 
   // Android 7 y anteriores no saben de capas: esperan una imagen opaca.
   const opaco = codificarPng(sobreColor(capa, VERDE));

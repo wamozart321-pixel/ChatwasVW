@@ -29,6 +29,7 @@ import { coordenadasDe, esEnlaceCorto } from '../src/messages/ubicacion';
 import { aE164 } from '../src/conversations/conversations.service';
 import { parsearDireccionCo } from '../src/messages/direccion-co';
 import { barrasDe } from '../web/src/componentes/onda';
+import { esMasNueva } from '../web/src/componentes/version';
 
 let fallos = 0;
 
@@ -550,6 +551,30 @@ async function main() {
 
   await prueba('un audio mas corto que las barras no rompe', () => {
     assert.equal(barrasDe(new Float32Array(3), 40), null);
+  });
+
+  console.log('\navisos de version\n');
+
+  await prueba('la app se reconoce por el User-Agent', () => {
+    // El empaquetado escribe la version ahi: es la unica via sin plugins,
+    // porque la pagina la sirve el servidor y no esta dentro del .apk.
+    const conApp =
+      'Mozilla/5.0 (Linux; Android 14; SM-A546E; wv) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36 WhatsWV/0.1.0';
+    const navegador =
+      'Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36';
+
+    assert.equal(conApp.match(/WhatsWV\/(\d+\.\d+\.\d+)/)?.[1], '0.1.0');
+    assert.equal(navegador.match(/WhatsWV\/(\d+\.\d+\.\d+)/)?.[1], undefined);
+  });
+
+  await prueba('0.10.0 es mas nueva que 0.9.0', () => {
+    // Comparando como texto, '0.10.0' < '0.9.0' y la actualizacion nunca se
+    // ofreceria. Hay que comparar numero por numero.
+    assert.equal(esMasNueva('0.10.0', '0.9.0'), true);
+    assert.equal(esMasNueva('0.9.0', '0.10.0'), false);
+    assert.equal(esMasNueva('1.0.0', '0.99.99'), true);
+    assert.equal(esMasNueva('0.1.2', '0.1.2'), false, 'la misma version no es mas nueva');
+    assert.equal(esMasNueva('0.1.1', '0.1.2'), false, 'una vieja no puede ofrecerse');
   });
 
   await db.close();

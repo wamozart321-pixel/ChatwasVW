@@ -25,6 +25,7 @@ import NuevoChat from './componentes/NuevoChat';
 import PanelUsuarios from './componentes/PanelUsuarios';
 import PanelMetricas from './componentes/PanelMetricas';
 import PreviaArchivo from './componentes/PreviaArchivo';
+import ActualizarApp from './componentes/ActualizarApp';
 import Redactor from './componentes/Redactor';
 import Reenviar from './componentes/Reenviar';
 import SelectorPlantilla from './componentes/SelectorPlantilla';
@@ -514,9 +515,8 @@ export default function App() {
   return (
     <div className="flex h-full flex-col bg-slate-100">
       <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-2.5 pt-[calc(0.625rem+env(safe-area-inset-top))]">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-marca-500 text-sm font-bold text-white">
-          W
-        </div>
+        {/* El mismo archivo que el icono de las apps: un solo logo en todos lados. */}
+        <img src="/icono-192.png" alt="WhatsWV" className="size-8 shrink-0 rounded-lg" />
         <span className="hidden font-semibold text-slate-900 sm:inline">WhatsWV</span>
 
         <span
@@ -581,6 +581,8 @@ export default function App() {
           )}
         </div>
       </header>
+
+      <ActualizarApp />
 
       <div className="flex min-h-0 flex-1">
         {/*

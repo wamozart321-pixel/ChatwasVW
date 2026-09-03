@@ -14,7 +14,14 @@
  * desinstalar, con lo que el asesor pierde la sesión.
  */
 const { execFileSync } = require('node:child_process');
-const { existsSync, mkdirSync, copyFileSync, writeFileSync, readdirSync } = require('node:fs');
+const {
+  existsSync,
+  mkdirSync,
+  copyFileSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+} = require('node:fs');
 const { join } = require('node:path');
 const { randomBytes } = require('node:crypto');
 
@@ -114,6 +121,42 @@ function asegurarFirma(jdk) {
   );
 }
 
+/**
+ * Escribe la versión en los dos sitios que la necesitan.
+ *
+ * En el User-Agent porque es como la bandeja sabe qué versión tiene el teléfono
+ * delante: la app abre la web del servidor, así que sin esto la página no puede
+ * distinguir un celular con la app vieja de uno recién instalado, y no puede
+ * avisar de que hay una nueva.
+ *
+ * Y en build.gradle para que la ficha de la app en Android diga la verdad. Las
+ * dos salen de package.json y no escritas a mano en tres archivos, que es como
+ * terminan diciendo tres cosas distintas.
+ */
+function ponerVersion() {
+  const paquete = JSON.parse(readFileSync(join(AQUI, 'package.json'), 'utf8'));
+  const version = paquete.version;
+
+  const rutaConfig = join(AQUI, 'capacitor.config.json');
+  const config = JSON.parse(readFileSync(rutaConfig, 'utf8'));
+  config.android = { ...config.android, appendUserAgent: `WhatsWV/${version}` };
+  writeFileSync(rutaConfig, `${JSON.stringify(config, null, 2)}\n`);
+
+  // El código de versión tiene que crecer con cada publicación o Android se
+  // niega a instalar encima. Se arma con los números de la versión.
+  const [may, men, par] = version.split('.').map(Number);
+  const codigo = may * 10000 + men * 100 + par;
+
+  const rutaGradle = join(ANDROID, 'app', 'build.gradle');
+  const gradle = readFileSync(rutaGradle, 'utf8')
+    .replace(/versionCode \d+/, `versionCode ${codigo}`)
+    .replace(/versionName "[^"]*"/, `versionName "${version}"`);
+  writeFileSync(rutaGradle, gradle);
+
+  console.log(`  versión: ${version} (código ${codigo})`);
+  return version;
+}
+
 function main() {
   const jdk = buscarJdk();
   const sdk = buscarSdk();
@@ -125,6 +168,7 @@ function main() {
   const sdkGradle = sdk.split(/[\\/]/).join('/');
   writeFileSync(join(ANDROID, 'local.properties'), `sdk.dir=${sdkGradle}\n`);
 
+  ponerVersion();
   asegurarFirma(jdk);
 
   // `cap sync` deja en android/ la configuración y los assets, que están fuera
