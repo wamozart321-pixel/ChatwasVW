@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import type { Asesor, DetalleConversacion } from '../api';
+import { useEffect, useState } from 'react';
+import { api, type Asesor, type DetalleConversacion, type MiembroEquipo } from '../api';
 
 /**
  * Franja de dueño. Es la pieza que evita el problema real de 7 asesores sobre un
@@ -22,7 +22,29 @@ export default function BarraAsignacion({
   onAsignar: (asesorId: string) => void;
 }) {
   const [abierto, setAbierto] = useState(false);
+  const [carga, setCarga] = useState<Map<string, MiembroEquipo>>(new Map());
   const mia = detalle.asignadoId === yo.id;
+
+  /**
+   * Cuántas lleva encima cada asesor, para poder elegir a quién pasársela.
+   *
+   * Se pide al abrir la lista y no al montar la barra: la barra se dibuja en
+   * cada conversación que se abre, y eso serían decenas de consultas al día
+   * para un dato que casi nunca se mira.
+   */
+  useEffect(() => {
+    if (!abierto) return;
+
+    let vigente = true;
+    api
+      .equipo()
+      .then((e) => vigente && setCarga(new Map(e.map((m) => [m.id, m]))))
+      .catch(() => undefined);
+
+    return () => {
+      vigente = false;
+    };
+  }, [abierto]);
   const libre = !detalle.asignadoId;
   const puedeReasignar = mia || libre || yo.rol !== 'asesor';
 
@@ -83,22 +105,48 @@ export default function BarraAsignacion({
               <div className="absolute right-0 top-9 z-10 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
                 {asesores
                   .filter((a) => a.id !== detalle.asignadoId)
-                  .map((a) => (
-                    <button
-                      key={a.id}
-                      onClick={() => {
-                        setAbierto(false);
-                        onAsignar(a.id);
-                      }}
-                      className="flex w-full items-baseline gap-2 px-3 py-2 text-left text-xs hover:bg-slate-50"
-                    >
-                      <span className="font-medium text-slate-800">{a.nombre}</span>
-                      <span className="text-[10px] text-slate-400">{a.rol}</span>
-                      {a.id === yo.id && (
-                        <span className="ml-auto text-[10px] text-marca-600">vos</span>
-                      )}
-                    </button>
-                  ))}
+                  .map((a) => {
+                    const suya = carga.get(a.id);
+                    const alTope = suya != null && suya.activas >= suya.tope;
+
+                    return (
+                      <button
+                        key={a.id}
+                        onClick={() => {
+                          setAbierto(false);
+                          onAsignar(a.id);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-slate-50"
+                      >
+                        {/* Conectado o no: pasarle un chat a quien se fue a
+                            almorzar deja al cliente esperando sin que se note. */}
+                        <span
+                          title={suya?.conectado ? 'Conectado' : 'Desconectado'}
+                          className={`size-1.5 shrink-0 rounded-full ${
+                            suya?.conectado ? 'bg-marca-500' : 'bg-slate-300'
+                          }`}
+                        />
+
+                        <span className="min-w-0 flex-1 truncate">
+                          <span className="font-medium text-slate-800">{a.nombre}</span>
+                          {a.id === yo.id && <span className="ml-1 text-[10px] text-marca-600">vos</span>}
+                        </span>
+
+                        {/* Cuántas está atendiendo. Es el dato que decide a quién
+                            pasársela, y hasta ahora sólo estaba en «Equipo». */}
+                        {suya && (
+                          <span
+                            title={`${suya.activas} conversaciones abiertas`}
+                            className={`shrink-0 text-[10px] font-medium ${
+                              alTope ? 'text-amber-600' : 'text-slate-400'
+                            }`}
+                          >
+                            {suya.activas}/{suya.tope}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
               </div>
             )}
           </div>
