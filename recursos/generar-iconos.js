@@ -31,16 +31,32 @@ const HEX = '#' + VERDE.map((v) => v.toString(16).padStart(2, '0').toUpperCase()
 const RAIZ = join(__dirname, '..');
 const logo = decodificarPng(readFileSync(join(__dirname, 'logo.png')));
 
-/**
- * Los tamaños chicos van recortados al dibujo.
- *
- * Sólo Android recorta el ícono, y para eso necesita el margen. En una pestaña
- * del navegador o en el escritorio nadie lo recorta, así que ese margen es
- * espacio malgastado: a 32 px, recortado se distingue el escarabajo y sin
- * recortar es una mancha.
- */
 const recorte = recuadroDelDibujo(logo, 24);
-const ajustado = (lado) => sobreColor(soloElDibujo(redimensionar(logo, lado, recorte)), VERDE);
+
+/**
+ * Cuánto del cuadrado ocupa el dibujo fuera de Android.
+ *
+ * Pegado al borde el globo se ve apretado; con este margen respira y se parece
+ * al archivo original. Menos que en Android, que necesita margen de más porque
+ * el sistema recorta el ícono con la forma del teléfono y acá nadie lo recorta.
+ */
+const OCUPACION = 0.74;
+
+/**
+ * De 32 px para abajo el margen se saca.
+ *
+ * A ese tamaño cada píxel cuenta: con margen, el escarabajo se vuelve una
+ * mancha, y sin él todavía se distinguen el techo y los faros. Es lo que hace
+ * cualquier juego de íconos serio — el dibujo de 16 px no es el de 256
+ * reducido, es otro dibujo.
+ */
+const SIN_MARGEN_HASTA = 32;
+
+function ajustado(lado) {
+  const dibujo = soloElDibujo(redimensionar(logo, Math.max(lado * 2, 256), recorte));
+  const capa = lado <= SIN_MARGEN_HASTA ? redimensionar(dibujo, lado) : conMargen(dibujo, lado, OCUPACION);
+  return sobreColor(capa, VERDE);
+}
 
 // --- Windows -----------------------------------------------------------------
 
