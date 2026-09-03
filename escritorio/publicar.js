@@ -48,9 +48,16 @@ correr('npx', ['electron-builder', '--win', '--publish', 'never']);
 
 // --- archivos a subir --------------------------------------------------------
 
-const instalador = readdirSync(SALIDA).find((f) => f.endsWith('.exe') && !f.includes('uninstaller'));
+// Con la version adentro del nombre, no el primer .exe que aparezca:
+// electron-builder no limpia salida/, asi que ahi quedan los instaladores de
+// todas las publicaciones anteriores. Buscando el primero se subio una vez el
+// de la version pasada con el nombre de la nueva, y latest.yml quedo
+// anunciando una version que en el servidor no estaba.
+const instalador = readdirSync(SALIDA).find(
+  (f) => f.endsWith('.exe') && !f.includes('uninstaller') && f.includes(paquete.version),
+);
 if (!instalador) {
-  console.error('no se genero ningun instalador en salida/');
+  console.error(`no se genero el instalador de la ${paquete.version} en salida/`);
   process.exit(1);
 }
 
@@ -66,6 +73,16 @@ if (!existsSync(rutaYml)) {
 // el nombre fijo para que el enlace de descarga no cambie en cada version.
 const NOMBRE_FIJO = 'WhatsWV-Setup.exe';
 const yml = readFileSync(rutaYml, 'utf8').split(instalador).join(NOMBRE_FIJO);
+
+// Que el reemplazo haya ocurrido de verdad. Es la comprobacion que habria
+// cazado lo de arriba: si el nombre no coincide, el yml sale apuntando a un
+// archivo que no existe en el servidor y la actualizacion falla con un 404 en
+// las siete maquinas, sin que nadie se entere hasta que alguien reinstala.
+if (!yml.includes(NOMBRE_FIJO)) {
+  console.error(`latest.yml no menciona "${instalador}": no se pudo renombrar`);
+  process.exit(1);
+}
+
 writeFileSync(rutaYml, yml, 'utf8');
 
 const blockmap = readdirSync(SALIDA).find((f) => f.endsWith('.exe.blockmap'));
