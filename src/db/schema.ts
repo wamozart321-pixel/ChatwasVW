@@ -195,6 +195,46 @@ export const messages = pgTable(
 );
 
 /**
+ * Sesiones abiertas. Una por tipo de dispositivo y por asesor: el celular y la
+ * computadora, nada mas.
+ *
+ * El limite es por TIPO y no un contador hasta dos a proposito. Con un contador,
+ * un asesor que le presta la cuenta a alguien deja las dos ranuras ocupadas con
+ * dos celulares y se queda sin la computadora. Por tipo, entrar desde un segundo
+ * celular cierra el primero y no toca la computadora, que es lo que uno espera.
+ *
+ * El indice unico parcial es el que hace cumplir la regla: aunque dos logins
+ * entren a la vez, la base no deja dos sesiones vivas del mismo tipo.
+ */
+export const sessions = pgTable(
+  'sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tipo: text('tipo', { enum: ['movil', 'escritorio'] }).notNull(),
+    /** Para que el asesor reconozca cual es cual al mirarlas. */
+    dispositivo: text('dispositivo'),
+    /** Se refresca cada tanto, no en cada pedido: seria una escritura por request. */
+    ultimaActividad: timestamp('ultima_actividad', { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Cerrada. Es borrado logico para poder decirle al asesor POR QUE se cerro
+     * —entro desde otro telefono, le cambiaron la clave, salio el mismo— en vez
+     * de un «sesion invalida» que no explica nada.
+     */
+    revocadaEn: timestamp('revocada_en', { withTimezone: true }),
+    motivo: text('motivo'),
+    createdAt: creado,
+  },
+  (t) => [
+    uniqueIndex('sessions_una_por_tipo_idx')
+      .on(t.userId, t.tipo)
+      .where(sql`${t.revocadaEn} is null`),
+  ],
+);
+
+/**
  * Cola de webhooks. Se guarda el payload crudo y se responde 200 de inmediato;
  * un worker lo procesa despues con FOR UPDATE SKIP LOCKED.
  * Doble beneficio: queda auditoria y se puede reprocesar.

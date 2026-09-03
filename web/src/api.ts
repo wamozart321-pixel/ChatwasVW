@@ -170,10 +170,26 @@ const TOKEN = 'whatswv:token';
  */
 const ULTIMO_EMAIL = 'whatswv.ultimo_email';
 
+/**
+ * Por que se cerro la ultima sesion.
+ *
+ * Se guarda un instante para que la pantalla de entrada pueda explicarlo. Sin
+ * esto, a quien lo echa otro dispositivo le aparece el login sin mas y cree que
+ * se rompio algo.
+ */
+const MOTIVO_CIERRE = 'whatswv.motivo_cierre';
+
 export const sesion = {
   token: () => localStorage.getItem(TOKEN),
   guardar: (v: string) => localStorage.setItem(TOKEN, v),
   borrar: () => localStorage.removeItem(TOKEN),
+
+  motivoCierre: () => {
+    const v = localStorage.getItem(MOTIVO_CIERRE);
+    localStorage.removeItem(MOTIVO_CIERRE);
+    return v ?? '';
+  },
+  anotarCierre: (v: string) => localStorage.setItem(MOTIVO_CIERRE, v),
 
   ultimoEmail: () => localStorage.getItem(ULTIMO_EMAIL) ?? '',
   recordarEmail: (v: string) => localStorage.setItem(ULTIMO_EMAIL, v),
@@ -230,6 +246,9 @@ export const api = {
     }),
 
   yo: () => pedir<Asesor>('/auth/yo'),
+
+  /** Cierra la sesion tambien en el servidor, no solo en este aparato. */
+  salir: () => pedir<{ ok: boolean }>('/auth/salir', { method: 'POST' }),
 
   config: () =>
     pedir<{ maxArchivoMB: number; maxVideoMB: number; ubicacionNegocio: UbicacionNegocio | null }>(

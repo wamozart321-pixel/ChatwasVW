@@ -829,6 +829,87 @@ async function main() {
     assert.equal(status, 200);
   });
 
+  console.log('\nsesiones\n');
+
+  // Dos ranuras por asesor: el celular y la computadora. El limite es por TIPO
+  // y no un contador hasta dos, para que un segundo celular cierre el primer
+  // celular y no la computadora.
+  const AGENTE = {
+    pc: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36',
+    appWindows:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Electron/43.0 Safari/537.36',
+    celular:
+      'Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36',
+    apk: 'Mozilla/5.0 (Linux; Android 14; SM-A546E; wv) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36',
+  };
+
+  async function entrarComo(agente: string): Promise<string> {
+    const r = await fetch(`${BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': agente },
+      body: JSON.stringify({ email: 'daniela@repuestos.com', clave: CLAVE_DEMO }),
+    });
+    const cuerpo = (await r.json()) as { token?: string };
+    assert.ok(cuerpo.token, `no entro con ${agente.slice(0, 30)}`);
+    return cuerpo.token;
+  }
+
+  const sigueViva = async (token: string) =>
+    (await fetch(`${BASE}/api/auth/yo`, { headers: { Authorization: `Bearer ${token}` } })).ok;
+
+  await prueba('el celular y la computadora conviven', async () => {
+    const pc = await entrarComo(AGENTE.pc);
+    const celular = await entrarComo(AGENTE.celular);
+
+    assert.ok(await sigueViva(pc), 'entrar del celular cerro la computadora');
+    assert.ok(await sigueViva(celular), 'la sesion del celular no quedo');
+  });
+
+  await prueba('un segundo celular cierra el primero, no la computadora', async () => {
+    const pc = await entrarComo(AGENTE.pc);
+    const celular = await entrarComo(AGENTE.celular);
+    const otroCelular = await entrarComo(AGENTE.apk);
+
+    assert.equal(await sigueViva(celular), false, 'el celular viejo tenia que cerrarse');
+    assert.ok(await sigueViva(otroCelular), 'el celular nuevo tenia que quedar');
+    assert.ok(await sigueViva(pc), 'la computadora no se toca');
+  });
+
+  await prueba('la app de Windows ocupa la ranura de escritorio', async () => {
+    // Su User-Agent tambien dice "Chrome": si no se mirara "Electron" primero,
+    // seria una tercera ranura y el limite de dos dejaria de valer.
+    const navegador = await entrarComo(AGENTE.pc);
+    await entrarComo(AGENTE.appWindows);
+
+    assert.equal(await sigueViva(navegador), false, 'quedaron dos sesiones de escritorio');
+  });
+
+  await prueba('salir cierra la sesion en el servidor', async () => {
+    // Sin esto, salir solo borraba el token del navegador: la ranura seguia
+    // ocupada hasta que el token venciera.
+    const token = await entrarComo(AGENTE.pc);
+    await fetch(`${BASE}/api/auth/salir`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    assert.equal(await sigueViva(token), false, 'la sesion seguia viva despues de salir');
+  });
+
+  await prueba('nunca hay mas de dos sesiones abiertas', async () => {
+    for (const agente of [AGENTE.pc, AGENTE.celular, AGENTE.apk, AGENTE.appWindows, AGENTE.pc]) {
+      await entrarComo(agente);
+    }
+
+    const { rows } = await pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM sessions s
+         JOIN users u ON u.id = s.user_id
+        WHERE u.email = $1 AND s.revocada_en IS NULL`,
+      ['daniela@repuestos.com'],
+    );
+    assert.ok(rows[0].n <= 2, `quedaron ${rows[0].n} sesiones abiertas`);
+  });
+
   console.log('\nplantillas\n');
 
   await prueba('sincroniza contra Meta y lista', async () => {

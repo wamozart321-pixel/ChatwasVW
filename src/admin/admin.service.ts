@@ -14,6 +14,7 @@ import { hashear, verificar } from '../auth/password';
 import { DB, type Database } from '../db/db.module';
 import { users } from '../db/schema';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { AuthService } from '../auth/auth.service';
 
 export type Rol = 'admin' | 'supervisor' | 'asesor';
 const ROLES: Rol[] = ['admin', 'supervisor', 'asesor'];
@@ -29,6 +30,7 @@ export class AdminService {
     @Inject(DB) private readonly db: Database,
     private readonly asignacion: AsignacionService,
     private readonly realtime: RealtimeGateway,
+    private readonly auth: AuthService,
   ) {}
 
   /** Todos, incluidos los de baja: el panel tiene que poder reactivarlos. */
@@ -100,10 +102,13 @@ export class AdminService {
 
     if (!fila) throw new NotFoundException('usuario inexistente');
 
-    // La sesión abierta sigue valiendo hasta que venza el token: cambiar la
-    // clave no la corta. Es lo esperable si el propio usuario la pidió, y para
-    // el caso de una cuenta comprometida está la baja, que sí cierra el paso.
-    this.log.log(`clave cambiada para ${fila.email}`);
+    // Se cierran sus sesiones. Antes no: el token ya emitido seguia valiendo
+    // hasta vencerse, asi que cambiarle la clave a alguien que se va del
+    // negocio lo dejaba adentro medio dia mas desde el telefono que ya tenia
+    // abierto. Ahora la proxima peticion suya rebota.
+    await this.auth.cerrarTodas(id, 'clave_cambiada');
+
+    this.log.log(`clave cambiada para ${fila.email}; sus sesiones se cerraron`);
     return { ok: true };
   }
 

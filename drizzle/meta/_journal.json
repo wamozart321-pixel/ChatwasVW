@@ -71,6 +71,13 @@
       "when": 1788380270842,
       "tag": "0009_amazing_amazoness",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788452419240,
+      "tag": "0010_next_nuke",
+      "breakpoints": true
     }
   ]
 }

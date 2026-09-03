@@ -149,12 +149,27 @@ export default function App() {
     api.etiquetas().then(setEtiquetas).catch(() => undefined);
   }, [asesor]);
 
-  const salir = useCallback(() => {
+  const salir = useCallback((motivo?: string) => {
+    // Si lo echaron —entro desde otro aparato, le cambiaron la clave— se anota
+    // el motivo para que la pantalla de entrada lo explique en vez de aparecer
+    // sin mas, como si algo se hubiera roto.
+    if (motivo) sesion.anotarCierre(motivo);
+    else void api.salir().catch(() => undefined);
+
     sesion.borrar();
     setAsesor(null);
     setSeleccionada(null);
     setConversaciones([]);
   }, []);
+
+  /** Un 401 puede traer el motivo del cierre; se le pasa a la pantalla de entrada. */
+  const salirPor401 = useCallback(
+    (e: unknown) => {
+      const err = e as ErrorApi;
+      salir(err?.datos?.mensaje ?? 'La sesión se cerró. Entrá de nuevo.');
+    },
+    [salir],
+  );
 
   // --- lista ---------------------------------------------------------------
 
@@ -178,9 +193,9 @@ export default function App() {
         .then(setConteo)
         .catch(() => undefined);
     } catch (e) {
-      if (e instanceof ErrorApi && e.status === 401) salir();
+      if (e instanceof ErrorApi && e.status === 401) salirPor401(e);
     }
-  }, [filtro, busqueda, asignado, etiquetaFiltro, salir, revisarNovedades]);
+  }, [filtro, busqueda, asignado, etiquetaFiltro, salirPor401, revisarNovedades]);
 
   useEffect(() => {
     if (!asesor) return;
@@ -208,7 +223,7 @@ export default function App() {
 
     socket.on('connect', () => setConectado(true));
     socket.on('disconnect', () => setConectado(false));
-    socket.on('no-autorizado', salir);
+    socket.on('no-autorizado', () => salir('La sesión se cerró. Entrá de nuevo.'));
 
     let pendiente: ReturnType<typeof setTimeout> | null = null;
     socket.on('conversacion:actualizada', ({ conversationId }) => {
@@ -542,7 +557,7 @@ export default function App() {
             <p className="text-xs font-medium text-slate-800">{asesor.nombre}</p>
             <p className="text-[10px] text-slate-400">{asesor.rol}</p>
           </div>
-          <button onClick={salir} className="text-xs text-slate-400 hover:text-slate-600">
+          <button onClick={() => salir()} className="text-xs text-slate-400 hover:text-slate-600">
             Salir
           </button>
 

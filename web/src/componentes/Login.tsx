@@ -8,6 +8,9 @@ export default function Login({ onEntrar }: { onEntrar: (asesor: Asesor) => void
   const [clave, setClave] = useState('');
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
+  // Por que se cerro la anterior, si es que la cerraron. Se lee una sola vez:
+  // al mirarlo se borra, para que no reaparezca en el proximo login.
+  const [motivoCierre] = useState(sesion.motivoCierre);
   const claveRef = useRef<HTMLInputElement>(null);
 
   // Si ya sabemos quién es, el cursor va directo a la contraseña.
@@ -69,6 +72,12 @@ export default function Login({ onEntrar }: { onEntrar: (asesor: Asesor) => void
           onChange={(e) => setClave(e.target.value)}
           className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-marca-500 focus:ring-2 focus:ring-marca-100"
         />
+
+        {motivoCierre && !error && (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            {motivoCierre}
+          </p>
+        )}
 
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 
