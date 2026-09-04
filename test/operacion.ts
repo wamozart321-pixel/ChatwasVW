@@ -412,6 +412,39 @@ async function main() {
     );
   });
 
+  await prueba('una nota puede ser informacion en vez de comentario', async () => {
+    // Dos clases: `interna` es un comentario del equipo, `informacion` es un
+    // dato del pedido. Van en colores distintos en el hilo.
+    const { status, cuerpo } = await api(tokenAndres, `/conversaciones/${conv}/notas`, {
+      method: 'POST',
+      body: JSON.stringify({ cuerpo: 'alternador ref 037903025K', tipo: 'informacion' }),
+    });
+    assert.ok(status < 300, `no se pudo crear (${status})`);
+    assert.equal(cuerpo.tipo, 'informacion');
+
+    const { cuerpo: lista } = await api(tokenAndres, `/conversaciones/${conv}/notas`);
+    const guardada = lista.find((n: any) => n.id === cuerpo.id);
+    assert.equal(guardada.tipo, 'informacion', 'el tipo no se guardo');
+  });
+
+  await prueba('sin decir el tipo, la nota es interna', async () => {
+    // Las notas que ya existian no tienen tipo escrito: tienen que seguir
+    // siendo lo que eran.
+    const { cuerpo } = await api(tokenAndres, `/conversaciones/${conv}/notas`, {
+      method: 'POST',
+      body: JSON.stringify({ cuerpo: 'sin tipo' }),
+    });
+    assert.equal(cuerpo.tipo, 'interna');
+  });
+
+  await prueba('un tipo inventado se rechaza', async () => {
+    const { status } = await api(tokenAndres, `/conversaciones/${conv}/notas`, {
+      method: 'POST',
+      body: JSON.stringify({ cuerpo: 'algo', tipo: 'urgente' }),
+    });
+    assert.equal(status, 400);
+  });
+
   await prueba('una nota vacía se rechaza', async () => {
     const { status } = await api(tokenAndres, `/conversaciones/${conv}/notas`, {
       method: 'POST',

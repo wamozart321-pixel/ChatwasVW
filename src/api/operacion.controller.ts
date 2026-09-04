@@ -29,10 +29,10 @@ export class OperacionController {
   @Post('conversaciones/:id/notas')
   agregarNota(
     @Param('id') id: string,
-    @Body() body: { cuerpo: string },
+    @Body() body: { cuerpo: string; tipo?: 'interna' | 'informacion' },
     @AsesorActual() asesor: Asesor,
   ) {
-    return this.operacion.agregarNota(id, body?.cuerpo ?? '', asesor);
+    return this.operacion.agregarNota(id, body?.cuerpo ?? '', asesor, body?.tipo ?? 'interna');
   }
 
   @Delete('notas/:notaId')

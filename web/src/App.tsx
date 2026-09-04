@@ -18,6 +18,7 @@ import {
   type Etiqueta,
   type Mensaje,
   type Nota,
+  type TipoNota,
   type UbicacionNegocio,
 } from './api';
 import BarraAsignacion from './componentes/BarraAsignacion';
@@ -484,9 +485,9 @@ export default function App() {
     api.etiquetas().then(setEtiquetas).catch(() => undefined);
   }, []);
 
-  async function agregarNota(cuerpo: string) {
+  async function agregarNota(cuerpo: string, tipo: TipoNota) {
     if (!seleccionada) return;
-    const nota = await api.agregarNota(seleccionada, cuerpo);
+    const nota = await api.agregarNota(seleccionada, cuerpo, tipo);
     setNotas((prev) => (prev.some((n) => n.id === nota.id) ? prev : [...prev, nota]));
   }
 

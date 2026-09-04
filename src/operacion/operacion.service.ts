@@ -63,6 +63,7 @@ export class OperacionService {
       .select({
         id: notes.id,
         cuerpo: notes.cuerpo,
+        tipo: notes.tipo,
         autor: users.nombre,
         autorId: notes.userId,
         cuando: notes.createdAt,
@@ -73,13 +74,22 @@ export class OperacionService {
       .orderBy(notes.createdAt);
   }
 
-  async agregarNota(conversationId: string, cuerpo: string, asesor: Asesor) {
+  async agregarNota(
+    conversationId: string,
+    cuerpo: string,
+    asesor: Asesor,
+    tipo: 'interna' | 'informacion' = 'interna',
+  ) {
     const limpio = cuerpo?.trim();
     if (!limpio) throw new BadRequestException('la nota está vacía');
 
+    if (tipo !== 'interna' && tipo !== 'informacion') {
+      throw new BadRequestException('tipo de nota inválido');
+    }
+
     const [fila] = await this.db
       .insert(notes)
-      .values({ conversationId, userId: asesor.id, cuerpo: limpio })
+      .values({ conversationId, userId: asesor.id, cuerpo: limpio, tipo })
       .returning();
 
     // Se avisa por el mismo canal que los mensajes: los demás asesores tienen
@@ -87,6 +97,7 @@ export class OperacionService {
     this.realtime.notaNueva(conversationId, {
       id: fila.id,
       cuerpo: fila.cuerpo,
+      tipo: fila.tipo,
       autor: asesor.nombre,
       autorId: asesor.id,
       cuando: fila.createdAt,

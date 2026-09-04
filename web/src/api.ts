@@ -33,8 +33,18 @@ export interface Etiqueta {
   color: string;
 }
 
+/**
+ * Las dos clases de nota.
+ *
+ * `interna` es un comentario del equipo sobre la conversación; `informacion` es
+ * un dato del pedido —la referencia de la pieza, el modelo, lo cotizado—. Van
+ * en colores distintos para poder separar de un vistazo un dato de una opinión.
+ */
+export type TipoNota = 'interna' | 'informacion';
+
 export interface Nota {
   id: string;
+  tipo: TipoNota;
   cuerpo: string;
   autor: string | null;
   autorId: string | null;
@@ -429,10 +439,10 @@ export const api = {
 
   notas: (id: string) => pedir<Nota[]>(`/conversaciones/${id}/notas`),
 
-  agregarNota: (id: string, cuerpo: string) =>
+  agregarNota: (id: string, cuerpo: string, tipo: TipoNota = 'interna') =>
     pedir<Nota>(`/conversaciones/${id}/notas`, {
       method: 'POST',
-      body: JSON.stringify({ cuerpo }),
+      body: JSON.stringify({ cuerpo, tipo }),
     }),
 
   borrarNota: (notaId: string) => pedir(`/notas/${notaId}`, { method: 'DELETE' }),

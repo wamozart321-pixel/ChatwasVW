@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, type Asesor, type DetalleConversacion, type Etiqueta } from '../api';
+import { api, type Asesor, type DetalleConversacion, type Etiqueta, type TipoNota } from '../api';
 
 const COLORES: Record<string, string> = {
   slate: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -179,8 +179,13 @@ function Etiquetas({
   );
 }
 
-function NuevaNota({ onAgregar }: { onAgregar: (cuerpo: string) => Promise<void> }) {
+function NuevaNota({
+  onAgregar,
+}: {
+  onAgregar: (cuerpo: string, tipo: TipoNota) => Promise<void>;
+}) {
   const [texto, setTexto] = useState('');
+  const [tipo, setTipo] = useState<TipoNota>('interna');
   const [guardando, setGuardando] = useState(false);
 
   async function guardar() {
@@ -188,18 +193,38 @@ function NuevaNota({ onAgregar }: { onAgregar: (cuerpo: string) => Promise<void>
     if (!limpio) return;
     setGuardando(true);
     try {
-      await onAgregar(limpio);
+      await onAgregar(limpio, tipo);
       setTexto('');
     } finally {
       setGuardando(false);
     }
   }
 
+  // Cada clase se escribe con su color, el mismo que va a tener en el hilo: se
+  // ve antes de guardar de qué va a quedar marcada.
+  const esInfo = tipo === 'informacion';
+
   return (
     <div className="border-t border-slate-100 px-5 py-4">
-      <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-        Nota interna
-      </h4>
+      <div className="mb-2 flex gap-1">
+        <button
+          onClick={() => setTipo('interna')}
+          className={`flex-1 rounded-lg px-2 py-1 text-[10px] font-semibold uppercase tracking-wide transition ${
+            esInfo ? 'text-slate-400 hover:bg-slate-100' : 'bg-amber-100 text-amber-700'
+          }`}
+        >
+          Nota interna
+        </button>
+        <button
+          onClick={() => setTipo('informacion')}
+          className={`flex-1 rounded-lg px-2 py-1 text-[10px] font-semibold uppercase tracking-wide transition ${
+            esInfo ? 'bg-sky-100 text-sky-700' : 'text-slate-400 hover:bg-slate-100'
+          }`}
+        >
+          Información
+        </button>
+      </div>
+
       <textarea
         value={texto}
         onChange={(e) => setTexto(e.target.value)}
@@ -207,15 +232,23 @@ function NuevaNota({ onAgregar }: { onAgregar: (cuerpo: string) => Promise<void>
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void guardar();
         }}
         rows={3}
-        placeholder="Sólo la ve el equipo, no el cliente"
-        className="w-full resize-none rounded-lg border border-slate-200 bg-amber-50/40 px-2.5 py-2 text-xs outline-none focus:border-amber-400"
+        placeholder={
+          esInfo
+            ? 'Un dato del pedido: la referencia, el modelo, lo cotizado'
+            : 'Sólo la ve el equipo, no el cliente'
+        }
+        className={`w-full resize-none rounded-lg border border-slate-200 px-2.5 py-2 text-xs outline-none ${
+          esInfo ? 'bg-sky-50/40 focus:border-sky-400' : 'bg-amber-50/40 focus:border-amber-400'
+        }`}
       />
       <button
         onClick={guardar}
         disabled={!texto.trim() || guardando}
-        className="mt-1.5 w-full rounded-lg bg-amber-500 py-1.5 text-[11px] font-medium text-white transition hover:bg-amber-600 disabled:opacity-40"
+        className={`mt-1.5 w-full rounded-lg py-1.5 text-[11px] font-medium text-white transition disabled:opacity-40 ${
+          esInfo ? 'bg-sky-600 hover:bg-sky-700' : 'bg-amber-500 hover:bg-amber-600'
+        }`}
       >
-        {guardando ? 'Guardando…' : 'Agregar nota'}
+        {guardando ? 'Guardando…' : esInfo ? 'Agregar información' : 'Agregar nota'}
       </button>
     </div>
   );
@@ -231,7 +264,7 @@ export default function PanelContacto({
 }: {
   detalle: DetalleConversacion | null;
   yo: Asesor;
-  onAgregarNota: (cuerpo: string) => Promise<void>;
+  onAgregarNota: (cuerpo: string, tipo: TipoNota) => Promise<void>;
   onEtiquetasCambiaron: () => void;
   /**
    * Como se coloca el panel. Por defecto es la columna fija de la derecha; en

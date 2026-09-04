@@ -321,6 +321,20 @@ export const notes = pgTable(
       .notNull()
       .references(() => conversations.id, { onDelete: 'cascade' }),
     userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    /**
+     * Que clase de nota es.
+     *
+     * `interna` es lo de siempre: un comentario del equipo sobre la
+     * conversacion. `informacion` es un dato del pedido —la referencia de la
+     * pieza, el modelo, lo que se cotizo— y va en otro color para poder
+     * distinguir de un vistazo un dato de una opinion.
+     *
+     * Con valor por defecto para que las notas que ya existen queden como
+     * internas, que es lo que son.
+     */
+    tipo: text('tipo', { enum: ['interna', 'informacion'] })
+      .notNull()
+      .default('interna'),
     cuerpo: text('cuerpo').notNull(),
     createdAt: creado,
   },
