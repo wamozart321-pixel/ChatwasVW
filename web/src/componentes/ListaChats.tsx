@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import FotoContacto from './FotoContacto';
 import type { Conversacion, Etiqueta } from '../api';
 
 /**
@@ -342,13 +343,12 @@ export default function ListaChats({
               }`}
             >
               <div className="relative shrink-0">
-                <div
-                  className={`flex size-10 items-center justify-center rounded-full text-xs font-semibold ${colorDe(
-                    c.telefono,
-                  )}`}
-                >
-                  {iniciales(c.contacto, c.telefono)}
-                </div>
+                <FotoContacto
+                  contactoId={c.contactoId}
+                  tieneFoto={c.tieneFoto}
+                  iniciales={iniciales(c.contacto, c.telefono)}
+                  color={colorDe(c.telefono)}
+                />
                 {/* Punto ámbar: la ventana de 24 h está cerrada, sólo plantilla. */}
                 {!c.ventanaAbierta && (
                   <span

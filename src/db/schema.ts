@@ -55,6 +55,19 @@ export const contacts = pgTable('contacts', {
   telefono: text('telefono').notNull(),
   /** Nombre del perfil de WhatsApp. El cliente lo controla, puede cambiar. */
   nombre: text('nombre'),
+  /**
+   * Foto del contacto, puesta a mano por el equipo. Ruta dentro del almacen.
+   *
+   * NO es la foto de perfil de WhatsApp. Esa no se puede leer: la Cloud API no
+   * la expone, y la unica via que la tiene —la sesion de WhatsApp Web— exige
+   * que el numero este registrado en la app normal, cosa que deja de ser cierta
+   * en cuanto se migra a la API. No es una limitacion que se pueda rodear con
+   * mas trabajo: los dos sistemas se excluyen.
+   *
+   * Asi que la pone el asesor, y para los clientes de siempre resuelve lo
+   * mismo: reconocer de un vistazo con quien se esta hablando.
+   */
+  fotoUrl: text('foto_url'),
   atributos: jsonb('atributos').$type<Record<string, unknown>>().notNull().default({}),
   createdAt: creado,
   updatedAt: actualizado,

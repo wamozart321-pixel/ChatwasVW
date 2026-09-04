@@ -55,6 +55,8 @@ export interface FilaBandeja {
   ultimoMensaje: string | null;
   ventanaVence: string | null;
   ventanaAbierta: boolean;
+  contactoId: string;
+  tieneFoto: boolean;
   vistaPrevia: string | null;
   vistaPreviaTipo: string | null;
   vistaPreviaDireccion: string | null;
@@ -109,6 +111,9 @@ export class BandejaService {
         -- confunda con las que si corresponden.
         NOT (${condicionDeVista(vista)}) AS "fueraDelFiltro",
         c.last_message_at              AS "ultimoMensaje",
+        ct.id                          AS "contactoId",
+        -- Solo si la tiene: la foto se pide aparte, con su propia peticion.
+        (ct.foto_url IS NOT NULL)      AS "tieneFoto",
         c.window_expires_at            AS "ventanaVence",
         coalesce(c.window_expires_at > now(), false) AS "ventanaAbierta",
         m.cuerpo                       AS "vistaPrevia",
@@ -176,6 +181,8 @@ export class BandejaService {
         estado: conversations.estado,
         contacto: contacts.nombre,
         telefono: contacts.waId,
+        contactoId: contacts.id,
+        tieneFoto: sql<boolean>`${contacts.fotoUrl} IS NOT NULL`,
         noLeidos: conversations.unreadCount,
         ventanaVence: conversations.windowExpiresAt,
         ventanaAbierta: sql<boolean>`coalesce(${conversations.windowExpiresAt} > now(), false)`,

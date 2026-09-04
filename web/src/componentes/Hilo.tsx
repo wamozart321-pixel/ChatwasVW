@@ -87,6 +87,7 @@ function HojaDeAcciones({
   puedeEliminar,
   onResponder,
   onReenviar,
+  onUsarDeFoto,
   onEliminar,
   onCerrar,
 }: {
@@ -94,6 +95,7 @@ function HojaDeAcciones({
   puedeEliminar: boolean;
   onResponder: () => void;
   onReenviar: () => void;
+  onUsarDeFoto: () => void;
   onEliminar: () => void;
   onCerrar: () => void;
 }) {
@@ -104,6 +106,15 @@ function HojaDeAcciones({
   const opciones = [
     sePuedeResponder && { icono: '↩', texto: 'Responder', al: onResponder, rojo: false },
     sePuedeReenviar && { icono: '↪', texto: 'Reenviar a otro chat', al: onReenviar, rojo: false },
+    // Sólo en fotos: es la vía cómoda para ponerle cara a un cliente sin
+    // bajar la imagen y volverla a subir.
+    !mensaje.eliminado &&
+      /^image\//.test(mensaje.mediaMime ?? '') && {
+        icono: '👤',
+        texto: 'Usar como foto del contacto',
+        al: onUsarDeFoto,
+        rojo: false,
+      },
     puedeEliminar && { icono: '🗑', texto: 'Eliminar de la bandeja', al: onEliminar, rojo: true },
   ].filter(Boolean) as { icono: string; texto: string; al: () => void; rojo: boolean }[];
 
@@ -180,6 +191,7 @@ export default function Hilo({
   puedeEliminar,
   onResponder,
   onReenviar,
+  onUsarDeFoto,
 }: {
   mensajes: Mensaje[];
   notas: Nota[];
@@ -189,6 +201,8 @@ export default function Hilo({
   puedeEliminar: (m: Mensaje) => boolean;
   onResponder: (m: Mensaje) => void;
   onReenviar: (m: Mensaje) => void;
+  /** Sólo en imágenes: usarla como foto del contacto. */
+  onUsarDeFoto: (m: Mensaje) => void;
 }) {
   const finRef = useRef<HTMLDivElement>(null);
   const [accionesDe, setAccionesDe] = useState<Mensaje | null>(null);
@@ -497,6 +511,7 @@ export default function Hilo({
           puedeEliminar={puedeEliminar(accionesDe)}
           onResponder={() => onResponder(accionesDe)}
           onReenviar={() => onReenviar(accionesDe)}
+          onUsarDeFoto={() => onUsarDeFoto(accionesDe)}
           onEliminar={() => onEliminarMensaje(accionesDe)}
           onCerrar={() => setAccionesDe(null)}
         />

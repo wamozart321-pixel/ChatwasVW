@@ -862,6 +862,67 @@ async function main() {
     assert.equal(status, 200);
   });
 
+  console.log('\nfoto del contacto\n');
+
+  // No es la foto de perfil de WhatsApp: esa no se puede leer. La Cloud API no
+  // la expone, y la unica via que la tiene —una sesion de WhatsApp Web— exige
+  // que el numero este en la app normal, cosa que deja de ser cierta al migrar
+  // a la API. Esta la pone el equipo.
+  await prueba('una imagen del hilo se puede usar como foto', async () => {
+    const { cuerpo: antes } = await api(tokenAndres, `/conversaciones/${conv}`);
+    assert.equal(antes.tieneFoto, false, 'arranca sin foto');
+
+    const { status } = await api(tokenAndres, `/contactos/${antes.contactoId}/foto-de-mensaje`, {
+      method: 'POST',
+      body: JSON.stringify({ messageId }),
+    });
+    assert.ok(status < 300, `no se pudo poner (${status})`);
+
+    const { cuerpo: despues } = await api(tokenAndres, `/conversaciones/${conv}`);
+    assert.equal(despues.tieneFoto, true, 'el detalle no dice que tiene foto');
+
+    const { cuerpo: lista } = await api(tokenAndres, '/conversaciones?estado=todas&asignado=todos');
+    const suya = lista.find((c: any) => c.id === conv);
+    assert.equal(suya.tieneFoto, true, 'la lista de chats no la muestra');
+  });
+
+  await pruebaLocal('la foto se sirve, y sólo con token', async () => {
+    const { cuerpo: det } = await api(tokenAndres, `/conversaciones/${conv}`);
+
+    const con = await fetch(`${BASE}/api/contactos/${det.contactoId}/foto`, {
+      headers: { Authorization: `Bearer ${tokenAndres}` },
+    });
+    assert.equal(con.status, 200);
+    assert.match(con.headers.get('content-type') ?? '', /^image\//);
+
+    // Son fotos de clientes: no pueden quedar accesibles con adivinar la URL.
+    const sin = await fetch(`${BASE}/api/contactos/${det.contactoId}/foto`);
+    assert.equal(sin.status, 401);
+  });
+
+  await prueba('un mensaje sin imagen no sirve de foto', async () => {
+    const { cuerpo: det } = await api(tokenAndres, `/conversaciones/${conv}`);
+    const { cuerpo: hilo } = await api(tokenAndres, `/conversaciones/${conv}/mensajes`);
+    const texto = hilo.find((m: any) => m.tipo === 'text');
+
+    const { status } = await api(tokenAndres, `/contactos/${det.contactoId}/foto-de-mensaje`, {
+      method: 'POST',
+      body: JSON.stringify({ messageId: texto.id }),
+    });
+    assert.equal(status, 404);
+  });
+
+  await prueba('la foto se puede quitar', async () => {
+    const { cuerpo: det } = await api(tokenAndres, `/conversaciones/${conv}`);
+    const { status } = await api(tokenAndres, `/contactos/${det.contactoId}/foto`, {
+      method: 'DELETE',
+    });
+    assert.ok(status < 300);
+
+    const { cuerpo: despues } = await api(tokenAndres, `/conversaciones/${conv}`);
+    assert.equal(despues.tieneFoto, false);
+  });
+
   console.log('\npermisos por rol\n');
 
   await prueba('un asesor no puede ver las conversaciones de otro', async () => {

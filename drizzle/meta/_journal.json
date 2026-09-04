@@ -85,6 +85,13 @@
       "when": 1788479378326,
       "tag": "0011_curious_wraith",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788548297265,
+      "tag": "0012_slow_pixie",
+      "breakpoints": true
     }
   ]
 }

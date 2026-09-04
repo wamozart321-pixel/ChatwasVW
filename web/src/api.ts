@@ -8,6 +8,8 @@ export interface Asesor {
 }
 
 export interface Conversacion {
+  contactoId: string;
+  tieneFoto: boolean;
   id: string;
   estado: 'abierto' | 'pendiente' | 'resuelto';
   contacto: string | null;
@@ -101,6 +103,8 @@ export interface DetalleConversacion {
   estado: string;
   contacto: string | null;
   telefono: string;
+  contactoId: string;
+  tieneFoto: boolean;
   noLeidos: number;
   ventanaVence: string | null;
   ventanaAbierta: boolean;
@@ -463,6 +467,39 @@ export const api = {
     }),
 
   borrarNota: (notaId: string) => pedir(`/notas/${notaId}`, { method: 'DELETE' }),
+
+  // --- foto del contacto ---
+  //
+  // NO es la foto de perfil de WhatsApp: esa no se puede leer. La pone el
+  // equipo, y para un cliente de siempre resuelve lo mismo.
+
+  subirFoto: async (contactoId: string, archivo: File) => {
+    const form = new FormData();
+    form.append('archivo', archivo);
+
+    const r = await fetch(`/api/contactos/${contactoId}/foto`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${sesion.token() ?? ''}` },
+      body: form,
+    });
+
+    const texto = await r.text();
+    const cuerpo = texto ? JSON.parse(texto) : null;
+    if (!r.ok) {
+      throw new ErrorApi(cuerpo?.mensaje ?? cuerpo?.message ?? 'no se pudo subir', r.status, cuerpo);
+    }
+    return cuerpo as { ok: boolean; tieneFoto: boolean };
+  },
+
+  /** Usa como foto una imagen que ya está en la conversación. */
+  fotoDeMensaje: (contactoId: string, messageId: string) =>
+    pedir<{ ok: boolean; tieneFoto: boolean }>(`/contactos/${contactoId}/foto-de-mensaje`, {
+      method: 'POST',
+      body: JSON.stringify({ messageId }),
+    }),
+
+  quitarFoto: (contactoId: string) =>
+    pedir<{ ok: boolean }>(`/contactos/${contactoId}/foto`, { method: 'DELETE' }),
 
   eliminarMensaje: (messageId: string) =>
     pedir<{ ok: boolean; llegoAlCliente: boolean }>(`/mensajes/${messageId}`, {

@@ -6,6 +6,7 @@ import { MediaModule } from '../media/media.module';
 import { ReenvioService } from '../messages/reenvio.service';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { BandejaController } from './bandeja.controller';
+import { FotoContactoController } from './foto-contacto.controller';
 import { MediaController } from './media.controller';
 import { OperacionController } from './operacion.controller';
 import { PlantillasController } from './plantillas.controller';
@@ -14,7 +15,13 @@ import { BandejaService } from './bandeja.service';
 
 @Module({
   imports: [AsignacionModule, OperacionModule, PlantillasModule, WhatsappModule, MediaModule],
-  controllers: [BandejaController, MediaController, OperacionController, PlantillasController],
+  controllers: [
+    BandejaController,
+    MediaController,
+    FotoContactoController,
+    OperacionController,
+    PlantillasController,
+  ],
   providers: [BandejaService, GeocodificarService, ReenvioService],
 })
 export class ApiModule {}

@@ -34,6 +34,7 @@ import PanelMetricas from './componentes/PanelMetricas';
 import PreviaArchivo from './componentes/PreviaArchivo';
 import ActualizarApp from './componentes/ActualizarApp';
 import Redactor from './componentes/Redactor';
+import { olvidarFoto } from './componentes/FotoContacto';
 import Reenviar from './componentes/Reenviar';
 import SelectorPlantilla from './componentes/SelectorPlantilla';
 
@@ -491,6 +492,21 @@ export default function App() {
     setNotas((prev) => (prev.some((n) => n.id === nota.id) ? prev : [...prev, nota]));
   }
 
+  /** Usa como foto del contacto una imagen que ya está en la conversación. */
+  async function ponerFotoDeMensaje(m: Mensaje) {
+    if (!detalle) return;
+    setAviso('');
+    try {
+      await api.fotoDeMensaje(detalle.contactoId, m.id);
+      // La cacheada es la anterior: sin olvidarla se seguiría viendo esa.
+      olvidarFoto(detalle.contactoId);
+      void cargarLista();
+      refrescarDetalle(detalle.id);
+    } catch (e) {
+      setAviso(e instanceof ErrorApi ? e.message : 'No se pudo poner la foto');
+    }
+  }
+
   async function borrarNota(id: string) {
     await api.borrarNota(id);
     setNotas((prev) => prev.filter((n) => n.id !== id));
@@ -746,6 +762,7 @@ export default function App() {
                 onEliminarMensaje={setPorEliminar}
                 onResponder={setRespondiendoA}
                 onReenviar={setPorReenviar}
+                onUsarDeFoto={(m) => void ponerFotoDeMensaje(m)}
                 // Misma regla que aplica el servidor: un asesor saca los entrantes
                 // y los que mandó él. Si acá fuera más permisiva, el botón
                 // aparecería para terminar en un 403.
@@ -800,6 +817,10 @@ export default function App() {
           yo={asesor}
           onAgregarNota={agregarNota}
           onEtiquetasCambiaron={refrescarEtiquetas}
+          onFotoCambio={() => {
+            void cargarLista();
+            refrescarDetalle(seleccionada!);
+          }}
           notas={notas}
           onBorrarNota={borrarNota}
           puedeBorrarNota={(n) => n.autorId === asesor.id || asesor.rol !== 'asesor'}
@@ -818,6 +839,10 @@ export default function App() {
             yo={asesor}
             onAgregarNota={agregarNota}
             onEtiquetasCambiaron={refrescarEtiquetas}
+            onFotoCambio={() => {
+              void cargarLista();
+              refrescarDetalle(seleccionada!);
+            }}
             notas={notas}
             onBorrarNota={borrarNota}
             puedeBorrarNota={(n) => n.autorId === asesor.id || asesor.rol !== 'asesor'}

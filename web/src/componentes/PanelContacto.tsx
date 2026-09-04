@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import FotoContacto, { olvidarFoto } from './FotoContacto';
 import {
   api,
+  ErrorApi,
   type Asesor,
   type DetalleConversacion,
   type Etiqueta,
@@ -187,6 +189,88 @@ function Etiquetas({
 }
 
 /**
+ * La foto del contacto: se ve, se cambia y se quita.
+ *
+ * NO es la de WhatsApp. Esa no se puede leer: la Cloud API no la expone, y la
+ * única vía que la tiene —una sesión de WhatsApp Web— exige que el número esté
+ * registrado en la app normal, cosa que deja de ser cierta en cuanto se migra a
+ * la API. Los dos sistemas se excluyen. Ésta la pone el equipo, y para el
+ * cliente de siempre resuelve lo mismo: reconocerlo de un vistazo.
+ */
+function Avatar({
+  detalle,
+  onCambio,
+}: {
+  detalle: DetalleConversacion;
+  onCambio: () => void;
+}) {
+  const archivoRef = useRef<HTMLInputElement>(null);
+  const [trabajando, setTrabajando] = useState(false);
+  const [error, setError] = useState('');
+  const inicial = (detalle.contacto ?? detalle.telefono).trim()[0]?.toUpperCase() ?? '?';
+
+  async function conLaFoto(hacer: () => Promise<unknown>) {
+    setTrabajando(true);
+    setError('');
+    try {
+      await hacer();
+      // La cacheada es la anterior: sin olvidarla se seguiría viendo esa.
+      olvidarFoto(detalle.contactoId);
+      onCambio();
+    } catch (e) {
+      setError(e instanceof ErrorApi ? e.message : 'No se pudo cambiar la foto');
+    } finally {
+      setTrabajando(false);
+    }
+  }
+
+  return (
+    <>
+      <input
+        ref={archivoRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const archivo = e.target.files?.[0];
+          if (archivo) void conLaFoto(() => api.subirFoto(detalle.contactoId, archivo));
+          e.target.value = '';
+        }}
+      />
+
+      <button
+        onClick={() => archivoRef.current?.click()}
+        disabled={trabajando}
+        title={detalle.tieneFoto ? 'Cambiar la foto' : 'Poner una foto'}
+        className="group relative rounded-full disabled:opacity-50"
+      >
+        <FotoContacto
+          contactoId={detalle.contactoId}
+          tieneFoto={detalle.tieneFoto}
+          iniciales={inicial}
+          color="bg-slate-200 text-slate-600"
+          className="size-16 text-xl"
+        />
+        <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 text-[10px] font-medium text-white opacity-0 transition group-hover:opacity-100">
+          {trabajando ? '…' : 'cambiar'}
+        </span>
+      </button>
+
+      {detalle.tieneFoto && !trabajando && (
+        <button
+          onClick={() => void conLaFoto(() => api.quitarFoto(detalle.contactoId))}
+          className="mt-1 text-[10px] text-slate-400 transition hover:text-red-600"
+        >
+          quitar foto
+        </button>
+      )}
+
+      {error && <p className="mt-1 text-[10px] text-red-600">{error}</p>}
+    </>
+  );
+}
+
+/**
  * Los datos del pedido: la referencia, el modelo, lo cotizado.
  *
  * Van acá y no en el hilo a propósito. En la conversación se hunden con el
@@ -319,6 +403,7 @@ export default function PanelContacto({
   yo,
   onAgregarNota,
   onEtiquetasCambiaron,
+  onFotoCambio,
   notas,
   onBorrarNota,
   puedeBorrarNota,
@@ -328,6 +413,8 @@ export default function PanelContacto({
   detalle: DetalleConversacion | null;
   yo: Asesor;
   onAgregarNota: (cuerpo: string, tipo: TipoNota) => Promise<void>;
+  /** Se llama al poner o quitar la foto, para que la lista de chats se entere. */
+  onFotoCambio: () => void;
   /** Las de tipo `informacion` se muestran acá; las internas van en el hilo. */
   notas: Nota[];
   onBorrarNota: (id: string) => void;
@@ -348,8 +435,6 @@ export default function PanelContacto({
     return <aside className={caja} />;
   }
 
-  const inicial = (detalle.contacto ?? detalle.telefono).trim()[0]?.toUpperCase() ?? '?';
-
   return (
     <aside className={caja}>
       {onCerrar && (
@@ -365,9 +450,7 @@ export default function PanelContacto({
       )}
 
       <div className="flex flex-col items-center border-b border-slate-100 px-5 py-6">
-        <div className="flex size-16 items-center justify-center rounded-full bg-slate-200 text-xl font-semibold text-slate-600">
-          {inicial}
-        </div>
+        <Avatar detalle={detalle} onCambio={onFotoCambio} />
         <h3 className="mt-3 text-center text-sm font-semibold text-slate-900">
           {detalle.contacto ?? 'Sin nombre'}
         </h3>
