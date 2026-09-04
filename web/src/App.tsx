@@ -586,7 +586,16 @@ export default function App() {
             Salir
           </button>
 
-          {verEquipo && <PanelEquipo onCerrar={() => setVerEquipo(false)} />}
+          {verEquipo && (
+            <PanelEquipo
+              yo={asesor}
+              onCerrar={() => setVerEquipo(false)}
+              onAbrirConversacion={(id) => {
+                void cargarLista();
+                setSeleccionada(id);
+              }}
+            />
+          )}
           {verUsuarios && asesor.rol === 'admin' && (
             <PanelUsuarios yo={asesor} onCerrar={() => setVerUsuarios(false)} />
           )}

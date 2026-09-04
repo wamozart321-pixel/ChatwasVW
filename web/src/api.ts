@@ -159,6 +159,16 @@ export interface UbicacionNegocio {
   direccion: string | null;
 }
 
+/** Una conversación de las que tiene encima un asesor. */
+export interface ChatDeAsesor {
+  id: string;
+  contacto: string | null;
+  telefono: string;
+  estado: string;
+  sinLeer: number;
+  ultimoDelCliente: string | null;
+}
+
 export interface MiembroEquipo {
   id: string;
   nombre: string;
@@ -310,6 +320,13 @@ export const api = {
   asesores: () => pedir<Asesor[]>('/auth/asesores'),
 
   equipo: () => pedir<MiembroEquipo[]>('/equipo'),
+
+  /**
+   * Que conversaciones tiene un asesor encima. Solo supervisores y admin: el
+   * servidor devuelve 403 a un asesor.
+   */
+  conversacionesDe: (asesorId: string) =>
+    pedir<ChatDeAsesor[]>(`/equipo/${asesorId}/conversaciones`),
 
   /**
    * `incluir` es la conversacion abierta: viene en la lista aunque deje de

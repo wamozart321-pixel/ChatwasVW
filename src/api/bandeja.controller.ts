@@ -18,6 +18,7 @@ import { coordenadasDe, esEnlaceCorto, resolverEnlaceCorto } from '../messages/u
 import { AuthGuard } from '../auth/auth.guard';
 import type { Asesor } from '../auth/auth.service';
 import { OutboundService } from '../messages/outbound.service';
+import { SupervisorGuard } from '../auth/supervisor.guard';
 import { ReenvioService } from '../messages/reenvio.service';
 import { BandejaService } from './bandeja.service';
 
@@ -150,6 +151,19 @@ export class BandejaController {
   @Get('equipo')
   equipo() {
     return this.asignacion.cargaDelEquipo();
+  }
+
+  /**
+   * Que conversaciones tiene un asesor encima.
+   *
+   * Solo supervisores y admin: el numero de cada uno lo puede ver cualquiera
+   * —hace falta para saber a quien pasarle un chat—, pero abrir la lista de
+   * otro es supervisar su trabajo, y eso le toca a quien supervisa.
+   */
+  @Get('equipo/:asesorId/conversaciones')
+  @UseGuards(SupervisorGuard)
+  conversacionesDe(@Param('asesorId') asesorId: string) {
+    return this.asignacion.conversacionesDe(asesorId);
   }
 
   /**

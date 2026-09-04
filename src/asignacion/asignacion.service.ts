@@ -456,6 +456,43 @@ export class AsignacionService implements OnModuleInit, OnApplicationShutdown {
     }));
   }
 
+  /**
+   * Qué conversaciones tiene un asesor encima, no sólo cuántas.
+   *
+   * El número solo no alcanza para supervisar: «Yeiner tiene 12» no dice si son
+   * doce que avanzan o doce olvidadas desde ayer. Con la lista se ve cuál es
+   * cuál y se puede entrar a mirarla.
+   *
+   * Se ordena por el último mensaje del cliente, más viejo primero: arriba
+   * queda lo que lleva más tiempo esperando respuesta, que es lo que un
+   * supervisor está buscando.
+   */
+  async conversacionesDe(asesorId: string) {
+    const { rows } = await this.db.execute<{
+      id: string;
+      contacto: string | null;
+      telefono: string;
+      estado: string;
+      sinLeer: number;
+      ultimoDelCliente: string | null;
+    }>(sql`
+      SELECT
+        c.id,
+        ct.nombre                AS contacto,
+        ct.wa_id                 AS telefono,
+        c.estado,
+        c.unread_count           AS "sinLeer",
+        c.last_inbound_at        AS "ultimoDelCliente"
+      FROM conversations c
+      JOIN contacts ct ON ct.id = c.contact_id
+      WHERE c.assigned_to = ${asesorId}
+        AND c.estado <> 'resuelto'
+      ORDER BY c.last_inbound_at ASC NULLS LAST
+    `);
+
+    return rows;
+  }
+
   private async duenno(conversationId: string) {
     const [fila] = await this.db
       .select({ id: users.id, nombre: users.nombre })

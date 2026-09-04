@@ -862,6 +862,52 @@ async function main() {
     assert.equal(status, 200);
   });
 
+  console.log('\npermisos por rol\n');
+
+  await prueba('un asesor no puede ver las conversaciones de otro', async () => {
+    // El numero de cada uno lo puede ver cualquiera —hace falta para saber a
+    // quien pasarle un chat—, pero abrir la lista de otro es supervisar su
+    // trabajo, y eso le toca a quien supervisa.
+    const { cuerpo: equipo } = await api(tokenAndres, '/equipo');
+    const otro = equipo.find((m: any) => m.nombre !== 'Andrés Gómez');
+    assert.ok(otro, 'no hay otro asesor con quien probar');
+
+    const { status } = await api(tokenAndres, `/equipo/${otro.id}/conversaciones`);
+    assert.equal(status, 403, 'un asesor pudo espiar la carga de otro');
+  });
+
+  await prueba('un supervisor si puede', async () => {
+    const { cuerpo: equipo } = await api(tokenCarolina, '/equipo');
+    const alguno = equipo[0];
+
+    const { status, cuerpo } = await api(tokenCarolina, `/equipo/${alguno.id}/conversaciones`);
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(cuerpo), 'no devolvio una lista');
+  });
+
+  await prueba('las cuentas son solo del admin', async () => {
+    // Ni el supervisor ni el asesor: crear, borrar, cambiar claves y roles es
+    // del administrador y de nadie mas.
+    for (const [quien, token] of [
+      ['asesor', tokenAndres],
+      ['supervisor', tokenCarolina],
+    ] as const) {
+      const { status } = await api(token, '/admin/usuarios', {
+        method: 'POST',
+        body: JSON.stringify({
+          nombre: 'Colado',
+          email: `colado.${Date.now()}@chatwasvw.com`,
+          clave: 'unaClaveLarga123',
+          rol: 'asesor',
+        }),
+      });
+      assert.equal(status, 403, `un ${quien} pudo crear una cuenta`);
+
+      const { status: listar } = await api(token, '/admin/usuarios');
+      assert.equal(listar, 403, `un ${quien} pudo listar las cuentas`);
+    }
+  });
+
   console.log('\nsesiones\n');
 
   // Dos ranuras por asesor: el celular y la computadora. El limite es por TIPO

@@ -1,5 +1,18 @@
 import { useEffect, useState } from 'react';
-import { api, type MiembroEquipo } from '../api';
+import { api, type Asesor, type ChatDeAsesor, type MiembroEquipo } from '../api';
+
+/** Hace cuánto que el cliente escribió, para ver qué lleva más esperando. */
+function haceCuanto(iso: string | null): string {
+  if (!iso) return 'sin mensajes';
+
+  const minutos = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (minutos < 1) return 'recién';
+  if (minutos < 60) return `hace ${minutos} min`;
+
+  const horas = Math.floor(minutos / 60);
+  if (horas < 24) return `hace ${horas} h`;
+  return `hace ${Math.floor(horas / 24)} d`;
+}
 
 /**
  * Quién está conectado y cuánto tiene encima cada uno.
@@ -8,9 +21,45 @@ import { api, type MiembroEquipo } from '../api';
  * alguien está al tope, el ruteo pegajoso deja de mandarle trabajo y todo cae
  * a la cola común.
  */
-export default function PanelEquipo({ onCerrar }: { onCerrar: () => void }) {
+export default function PanelEquipo({
+  yo,
+  onCerrar,
+  onAbrirConversacion,
+}: {
+  yo: Asesor;
+  onCerrar: () => void;
+  onAbrirConversacion: (id: string) => void;
+}) {
   const [equipo, setEquipo] = useState<MiembroEquipo[] | null>(null);
   const [error, setError] = useState('');
+
+  /**
+   * Qué asesor está desplegado, y sus conversaciones.
+   *
+   * El número solo no alcanza para supervisar: «doce» no dice si son doce que
+   * avanzan o doce olvidadas desde ayer.
+   */
+  const [abierto, setAbierto] = useState<string | null>(null);
+  const [chats, setChats] = useState<ChatDeAsesor[] | null>(null);
+
+  // Sólo quien supervisa. El servidor lo vuelve a comprobar: esconderlo no es
+  // seguridad, es no ofrecer lo que no corresponde.
+  const puedeVerChats = yo.rol !== 'asesor';
+
+  useEffect(() => {
+    if (!abierto) return;
+
+    let vigente = true;
+    setChats(null);
+    api
+      .conversacionesDe(abierto)
+      .then((c) => vigente && setChats(c))
+      .catch(() => vigente && setChats([]));
+
+    return () => {
+      vigente = false;
+    };
+  }, [abierto]);
 
   useEffect(() => {
     let vigente = true;
@@ -52,7 +101,16 @@ export default function PanelEquipo({ onCerrar }: { onCerrar: () => void }) {
             const alTope = m.activas >= m.tope;
 
             return (
-              <div key={m.id} className="border-b border-slate-50 px-4 py-2.5 last:border-0">
+              <div key={m.id} className="border-b border-slate-50 last:border-0">
+                <div
+                  onClick={() => {
+                    if (!puedeVerChats || m.activas === 0) return;
+                    setAbierto((a) => (a === m.id ? null : m.id));
+                  }}
+                  className={`px-4 py-2.5 ${
+                    puedeVerChats && m.activas > 0 ? 'cursor-pointer hover:bg-slate-50' : ''
+                  }`}
+                >
                 <div className="flex items-center gap-2">
                   <span
                     title={m.conectado ? 'Conectado' : 'Desconectado'}
@@ -84,7 +142,53 @@ export default function PanelEquipo({ onCerrar }: { onCerrar: () => void }) {
                       {m.sinLeer} sin leer
                     </span>
                   )}
+                  {puedeVerChats && m.activas > 0 && (
+                    <span className="shrink-0 text-[10px] text-slate-300">
+                      {abierto === m.id ? '▾' : '▸'}
+                    </span>
+                  )}
                 </div>
+                </div>
+
+                {/*
+                  Las conversaciones que tiene encima. Ordenadas por el ultimo
+                  mensaje del cliente, la mas vieja arriba: lo que lleva mas
+                  tiempo esperando es lo que un supervisor esta buscando.
+                */}
+                {abierto === m.id && (
+                  <div className="border-t border-slate-100 bg-slate-50/60">
+                    {chats === null ? (
+                      <p className="px-4 py-2 text-[11px] text-slate-400">Cargando…</p>
+                    ) : chats.length === 0 ? (
+                      <p className="px-4 py-2 text-[11px] text-slate-400">No tiene ninguna</p>
+                    ) : (
+                      chats.map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => {
+                            onAbrirConversacion(c.id);
+                            onCerrar();
+                          }}
+                          className="flex w-full items-center gap-2 px-4 py-1.5 text-left transition hover:bg-white"
+                        >
+                          <span className="min-w-0 flex-1 truncate text-[11px] text-slate-700">
+                            {c.contacto ?? `+${c.telefono}`}
+                          </span>
+
+                          {c.sinLeer > 0 && (
+                            <span className="shrink-0 rounded-full bg-marca-500 px-1.5 text-[9px] font-semibold text-white">
+                              {c.sinLeer}
+                            </span>
+                          )}
+
+                          <span className="shrink-0 text-[10px] text-slate-400">
+                            {haceCuanto(c.ultimoDelCliente)}
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
