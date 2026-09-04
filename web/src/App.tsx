@@ -800,6 +800,9 @@ export default function App() {
           yo={asesor}
           onAgregarNota={agregarNota}
           onEtiquetasCambiaron={refrescarEtiquetas}
+          notas={notas}
+          onBorrarNota={borrarNota}
+          puedeBorrarNota={(n) => n.autorId === asesor.id || asesor.rol !== 'asesor'}
         />
       </div>
 
@@ -815,6 +818,9 @@ export default function App() {
             yo={asesor}
             onAgregarNota={agregarNota}
             onEtiquetasCambiaron={refrescarEtiquetas}
+            notas={notas}
+            onBorrarNota={borrarNota}
+            puedeBorrarNota={(n) => n.autorId === asesor.id || asesor.rol !== 'asesor'}
             onCerrar={() => setVerContacto(false)}
             className="h-full w-full overflow-y-auto bg-white pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
           />

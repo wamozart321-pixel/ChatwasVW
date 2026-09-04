@@ -222,7 +222,14 @@ export default function Hilo({
 
   const entradas: Entrada[] = [
     ...mensajes.map((m): Entrada => ({ clase: 'mensaje', cuando: m.cuando, mensaje: m })),
-    ...notas.map((n): Entrada => ({ clase: 'nota', cuando: n.cuando, nota: n })),
+    // Sólo las internas. Una nota interna es un comentario sobre un momento de
+    // la charla y por eso va intercalada; la información es un dato del pedido
+    // —la referencia, el modelo, lo cotizado— y en el hilo se hunde: a la media
+    // hora hay que subir buscándola. Esa vive en el panel de la derecha,
+    // siempre a la vista.
+    ...notas
+      .filter((n) => n.tipo !== 'informacion')
+      .map((n): Entrada => ({ clase: 'nota', cuando: n.cuando, nota: n })),
   ].sort((a, b) => new Date(a.cuando).getTime() - new Date(b.cuando).getTime());
 
   return (
@@ -244,54 +251,23 @@ export default function Hilo({
                 </div>
               )}
               <div className="flex justify-center">
-                {/*
-                  Dos clases de nota, dos colores. Ambar es un comentario del
-                  equipo; azul es un dato del pedido —la referencia, el modelo,
-                  lo cotizado—. Distinguirlas de un vistazo es todo el punto:
-                  en un hilo largo, un dato y una opinion no se buscan igual.
-                */}
-                <div
-                  className={`group max-w-[85%] rounded-lg border px-3 py-2 md:max-w-[75%] ${
-                    n.tipo === 'informacion'
-                      ? 'border-sky-200 bg-sky-50'
-                      : 'border-amber-200 bg-amber-50'
-                  }`}
-                >
+                <div className="group max-w-[85%] rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 md:max-w-[75%]">
                   <div className="mb-0.5 flex items-center gap-2">
-                    <span
-                      className={`text-[10px] font-semibold uppercase tracking-wide ${
-                        n.tipo === 'informacion' ? 'text-sky-700' : 'text-amber-700'
-                      }`}
-                    >
-                      {n.tipo === 'informacion' ? 'Información' : 'Nota interna'} ·{' '}
-                      {n.autor ?? 'alguien'}
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                      Nota interna · {n.autor ?? 'alguien'}
                     </span>
-                    <span
-                      className={`text-[10px] ${
-                        n.tipo === 'informacion' ? 'text-sky-500' : 'text-amber-500'
-                      }`}
-                    >
-                      {hora(n.cuando)}
-                    </span>
+                    <span className="text-[10px] text-amber-500">{hora(n.cuando)}</span>
                     {/* Visible siempre en celular: ahi no hay mouse que pasar por encima. */}
                     {puedeBorrar(n) && (
                       <button
                         onClick={() => onBorrarNota(n.id)}
-                        className={`ml-auto text-[10px] transition md:opacity-0 md:group-hover:opacity-100 ${
-                          n.tipo === 'informacion'
-                            ? 'text-sky-400 hover:text-sky-700'
-                            : 'text-amber-400 hover:text-amber-700'
-                        }`}
+                        className="ml-auto text-[10px] text-amber-400 transition hover:text-amber-700 md:opacity-0 md:group-hover:opacity-100"
                       >
                         borrar
                       </button>
                     )}
                   </div>
-                  <p
-                    className={`whitespace-pre-wrap break-words text-sm ${
-                      n.tipo === 'informacion' ? 'text-sky-900' : 'text-amber-900'
-                    }`}
-                  >
+                  <p className="whitespace-pre-wrap break-words text-sm text-amber-900">
                     {n.cuerpo}
                   </p>
                 </div>

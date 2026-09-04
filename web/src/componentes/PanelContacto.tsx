@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react';
-import { api, type Asesor, type DetalleConversacion, type Etiqueta, type TipoNota } from '../api';
+import {
+  api,
+  type Asesor,
+  type DetalleConversacion,
+  type Etiqueta,
+  type Nota,
+  type TipoNota,
+} from '../api';
 
 const COLORES: Record<string, string> = {
   slate: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -179,6 +186,58 @@ function Etiquetas({
   );
 }
 
+/**
+ * Los datos del pedido: la referencia, el modelo, lo cotizado.
+ *
+ * Van acá y no en el hilo a propósito. En la conversación se hunden con el
+ * tiempo: a la media hora hay que subir buscándolas. Acá quedan siempre a la
+ * vista, que es lo que uno quiere de un dato — la nota interna sí va en el
+ * hilo, porque es un comentario sobre un momento de la charla.
+ */
+function Informacion({
+  notas,
+  puedeBorrar,
+  onBorrar,
+}: {
+  notas: Nota[];
+  puedeBorrar: (nota: Nota) => boolean;
+  onBorrar: (id: string) => void;
+}) {
+  const datos = notas.filter((n) => n.tipo === 'informacion');
+  if (datos.length === 0) return null;
+
+  return (
+    <div className="border-t border-slate-100 px-5 py-4">
+      <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-sky-600">
+        Información
+      </h4>
+
+      <div className="space-y-1.5">
+        {datos.map((n) => (
+          <div
+            key={n.id}
+            className="group rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5"
+          >
+            <p className="whitespace-pre-wrap break-words text-xs text-sky-900">{n.cuerpo}</p>
+
+            <div className="mt-0.5 flex items-center gap-2">
+              <span className="text-[10px] text-sky-500">{n.autor ?? 'alguien'}</span>
+              {puedeBorrar(n) && (
+                <button
+                  onClick={() => onBorrar(n.id)}
+                  className="ml-auto text-[10px] text-sky-400 transition hover:text-sky-700 md:opacity-0 md:group-hover:opacity-100"
+                >
+                  borrar
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function NuevaNota({
   onAgregar,
 }: {
@@ -200,8 +259,9 @@ function NuevaNota({
     }
   }
 
-  // Cada clase se escribe con su color, el mismo que va a tener en el hilo: se
-  // ve antes de guardar de qué va a quedar marcada.
+  // Cada clase se escribe con su color, el mismo que va a tener después: se ve
+  // antes de guardar de qué va a quedar marcada. Y van a sitios distintos —la
+  // interna al hilo, la información acá arriba—, así que el texto lo dice.
   const esInfo = tipo === 'informacion';
 
   return (
@@ -234,8 +294,8 @@ function NuevaNota({
         rows={3}
         placeholder={
           esInfo
-            ? 'Un dato del pedido: la referencia, el modelo, lo cotizado'
-            : 'Sólo la ve el equipo, no el cliente'
+            ? 'La referencia, el modelo, lo cotizado. Queda acá arriba, siempre a la vista'
+            : 'Un comentario del equipo. Va en la conversación; el cliente no lo ve'
         }
         className={`w-full resize-none rounded-lg border border-slate-200 px-2.5 py-2 text-xs outline-none ${
           esInfo ? 'bg-sky-50/40 focus:border-sky-400' : 'bg-amber-50/40 focus:border-amber-400'
@@ -259,12 +319,19 @@ export default function PanelContacto({
   yo,
   onAgregarNota,
   onEtiquetasCambiaron,
+  notas,
+  onBorrarNota,
+  puedeBorrarNota,
   className,
   onCerrar,
 }: {
   detalle: DetalleConversacion | null;
   yo: Asesor;
   onAgregarNota: (cuerpo: string, tipo: TipoNota) => Promise<void>;
+  /** Las de tipo `informacion` se muestran acá; las internas van en el hilo. */
+  notas: Nota[];
+  onBorrarNota: (id: string) => void;
+  puedeBorrarNota: (nota: Nota) => boolean;
   onEtiquetasCambiaron: () => void;
   /**
    * Como se coloca el panel. Por defecto es la columna fija de la derecha; en
@@ -319,6 +386,8 @@ export default function PanelContacto({
       </div>
 
       <Etiquetas conversationId={detalle.id} onCambio={onEtiquetasCambiaron} />
+
+      <Informacion notas={notas} puedeBorrar={puedeBorrarNota} onBorrar={onBorrarNota} />
 
       <NuevaNota onAgregar={onAgregarNota} />
 
