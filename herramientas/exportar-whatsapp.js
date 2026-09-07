@@ -93,15 +93,38 @@
   /**
    * De qué chat es un mensaje y quién lo mandó.
    *
-   * El identificador de un mensaje es "<mio>_<jid del chat>_<id>": la primera
-   * parte dice si salió de acá. Es la forma que WhatsApp usa desde siempre, y
-   * sirve aunque la fila no traiga los campos `from` y `to`.
+   * Hay tres formas de saberlo y WhatsApp usa las tres según la versión, así
+   * que se prueban todas. La primera versión de esto sólo miraba la primera y
+   * daba cero mensajes sin decir por qué:
+   *
+   *   1. El identificador de texto "<mio>_<jid del chat>_<id>".
+   *   2. El identificador como objeto, con `remote` y `fromMe` adentro. Ojo:
+   *      ahí `id.id` es sólo la última parte, así que leerlo como texto da algo
+   *      sin guiones bajos que no parece un mensaje.
+   *   3. Los campos sueltos `from`/`to` con `fromMe`.
    */
   function deQuienEs(fila, clave) {
-    const partes = idDe(fila, clave).split('_');
-    if (partes.length < 3 || (partes[0] !== 'true' && partes[0] !== 'false')) return null;
-    if (!partes[1].includes('@')) return null;
-    return { mio: partes[0] === 'true', jid: partes[1] };
+    // Como objeto.
+    for (const candidato of [fila?.id, clave, fila?.key]) {
+      if (candidato && typeof candidato === 'object' && candidato.remote) {
+        return { mio: candidato.fromMe === true, jid: comoTexto(candidato.remote) };
+      }
+    }
+
+    // Como texto, venga donde venga.
+    for (const candidato of [fila?.id, clave, fila?.key]) {
+      const partes = comoTexto(candidato).split('_');
+      if (partes.length >= 3 && (partes[0] === 'true' || partes[0] === 'false')) {
+        if (partes[1].includes('@')) return { mio: partes[0] === 'true', jid: partes[1] };
+      }
+    }
+
+    // Campos sueltos.
+    const mio = fila?.fromMe === true || fila?.key?.fromMe === true;
+    const jid = comoTexto(fila?.remote ?? fila?.chatId ?? (mio ? fila?.to : fila?.from));
+    if (jid.includes('@')) return { mio, jid };
+
+    return null;
   }
 
   /** Cuándo se mandó, en segundos. WhatsApp lo guarda en `t`. */
@@ -223,7 +246,14 @@
 
       for (const tienda of [...db.objectStoreNames]) {
         const muestra = await muestraDe(db, tienda, 40);
-        tiendas.push({ db, base: name, tienda, clase: clasificar(muestra), muestra: muestra.length });
+        tiendas.push({
+          db,
+          base: name,
+          tienda,
+          clase: clasificar(muestra),
+          muestra: muestra.length,
+          ejemplo: muestra[0] ?? null,
+        });
       }
     }
 
@@ -383,35 +413,44 @@
   /**
    * Todo lo que hay, sin exportar nada.
    *
-   * Está para cuando algo no cuadra: imprime cada base con cada tienda, cuántas
-   * filas tiene y qué se creyó que era. Con eso se ajusta el script en vez de
-   * quedar adivinando por qué salió vacío.
+   * Cuenta las filas de verdad —no la muestra— y deja en la consola un registro
+   * entero de cada tienda. Cuando la exportación sale vacía, ese registro es lo
+   * único que dice qué forma tienen los datos en ESTA versión de WhatsApp; sin
+   * él sólo queda adivinar.
    */
-  function diagnostico(tiendas, avisar) {
-    console.log('[whatswv] esto es lo que hay:');
+  async function diagnostico(tiendas, avisar) {
+    console.log('[whatswv] contando…');
+
+    for (const t of tiendas) {
+      if (!t.db) continue;
+      avisar(`contando ${t.base} / ${t.tienda}…`);
+      t.filas = await recorrer(t.db, t.tienda, () => {});
+    }
+
     console.table(
       tiendas.map((t) => ({
         base: t.base,
         tienda: t.tienda,
+        filas: t.filas ?? 0,
         clase: t.clase ?? '(no se reconocio)',
-        muestra: t.muestra,
       })),
     );
 
+    console.log('[whatswv] un registro de cada tienda que tenga algo:');
     for (const t of tiendas) {
-      if (t.clase || !t.muestra) continue;
-      console.log(`[whatswv] ejemplo de ${t.base} / ${t.tienda}:`);
+      if (!t.ejemplo) continue;
+      console.log(
+        `--- ${t.base} / ${t.tienda} (${t.filas ?? 0} filas, ${t.clase ?? 'no reconocida'})`,
+      );
+      console.log('    clave:', t.ejemplo.clave);
+      console.log('    campos:', Object.keys(t.ejemplo.fila ?? {}).join(', '));
+      console.log('    fila:', t.ejemplo.fila);
     }
 
-    const resumen = tiendas
-      .filter((t) => t.clase)
-      .map((t) => `${t.tienda}=${t.clase}`)
-      .join(', ');
-
+    const total = tiendas.reduce((n, t) => n + (t.filas ?? 0), 0);
     avisar(
-      `${tiendas.length} tiendas en ${new Set(tiendas.map((t) => t.base)).size} bases. ` +
-        (resumen || 'ninguna reconocida') +
-        '. El detalle quedo en la consola.',
+      `${total.toLocaleString('es')} filas en ${tiendas.length} tiendas de ` +
+        `${new Set(tiendas.map((t) => t.base)).size} bases. El detalle quedo en la consola.`,
     );
   }
 
