@@ -29,7 +29,8 @@
     "escritorio:empaquetar": "npm --prefix escritorio run empaquetar",
     "test:admin": "tsx test/admin.ts",
     "limpiar-pruebas": "tsx scripts/limpiar-pruebas.ts",
-    "iconos": "node recursos/generar-iconos.js"
+    "iconos": "node recursos/generar-iconos.js",
+    "importar": "tsx scripts/importar.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
