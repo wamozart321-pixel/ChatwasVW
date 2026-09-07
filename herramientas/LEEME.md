@@ -8,7 +8,11 @@ las extensiones que cobran, leyendo lo que ya está en el computador.
 1. Abrir **web.whatsapp.com** en Chrome y esperar a que carguen los chats.
 2. Abrir la consola: **F12** → pestaña **Console**.
 3. Abrir `exportar-whatsapp.js`, copiar **todo**, pegarlo ahí y dar Enter.
-4. Aparece un panel arriba a la derecha con dos botones.
+4. Aparece un panel arriba a la derecha.
+
+Para los contactos, **Contactos (CSV)** y listo. Para los chats conviene pulsar
+antes **Probar vía WhatsApp**, que en un segundo dice si esa vía sirve, en vez
+de averiguarlo después de recorrer miles de mensajes.
 
 Bajan `whatswv-contactos.csv` y `whatswv-chats.json` a la carpeta de descargas.
 
@@ -26,6 +30,11 @@ Para tocar el servidor y no la base de desarrollo, agregar `--produccion`.
 
 ## Lo que hay que saber antes
 
+- **El texto de los mensajes se saca por dos vías, y se suman.** WhatsApp
+  guarda su copia en disco cifrada, así que de ahí hay que abrirla con la llave
+  que está en la misma máquina; y además le pide los mensajes al código de la
+  propia página, que ya los tiene en claro para dibujarlos. Ninguna de las dos
+  tiene todo lo que tiene la otra. Lo repetido se descarta solo.
 - **Los contactos salen completos. Los mensajes, no.** WhatsApp Web sólo guarda
   lo que fue sincronizando con el celular; los chats viejos que nadie ha abierto
   no están. Para que baje más de un cliente concreto: abrir ese chat, subir un

@@ -381,6 +381,19 @@
       });
     }
 
+    /*
+     * Lo que WhatsApp tenga en memoria, que ya viene en claro.
+     *
+     * Se suma en vez de reemplazar: en memoria esta lo que el usuario abrio en
+     * esta sesion, y en disco esta todo lo sincronizado. Ninguna de las dos
+     * tiene lo que tiene la otra. Los repetidos se quitan mas abajo.
+     */
+    const enClaro = mensajesDeWhatsApp();
+    if (enClaro.length) {
+      avisar(`${enClaro.length.toLocaleString('es')} mensajes en claro desde WhatsApp`);
+      crudos.push(...enClaro);
+    }
+
     // Segunda pasada: abrir los que traen el texto cifrado.
     const cerrados = crudos.filter((c) => !c.texto && c.opaco);
     let abiertos = 0;
@@ -414,9 +427,19 @@
       console.log(`[whatswv] descifrados ${abiertos}, fallidos ${fallos}`);
     }
 
+    // El mismo mensaje puede venir por las dos vias: se queda una sola copia.
+    // La huella es telefono+segundo+quien+texto, que es lo mismo con que el
+    // importador decide si ya lo tiene.
     const chats = new Map();
+    const vistos = new Set();
+
     for (const c of crudos) {
       if (!c.texto) continue;
+
+      const huella = `${c.telefono}|${c.segundos}|${c.mio}|${c.texto}`;
+      if (vistos.has(huella)) continue;
+      vistos.add(huella);
+
       if (!chats.has(c.telefono)) chats.set(c.telefono, []);
       chats.get(c.telefono).push({
         cuando: new Date(c.segundos * 1000).toISOString(),
@@ -448,6 +471,161 @@
     );
 
     return salida.length;
+  }
+
+
+  // --- pedirle los mensajes a WhatsApp ----------------------------------------
+
+  /*
+   * La otra vía, cuando el descifrado de la copia en disco no da.
+   *
+   * En vez de abrir la caja, se le piden los mensajes al propio código de
+   * WhatsApp: la aplicación ya tiene la llave y descifra cada mensaje para
+   * dibujarlo en pantalla, así que sus modelos en memoria están en claro.
+   *
+   * Es lo que hacen las extensiones, y es frágil a propósito de WhatsApp: el
+   * código va empaquetado y minificado, y cada despliegue renumera los módulos.
+   * Por eso NO se busca un módulo por su número ni por su nombre, sino que se
+   * recorren todos y se reconoce la colección por lo que tiene adentro. Un
+   * número de módulo dura semanas; que la colección de mensajes contenga
+   * mensajes dura mientras WhatsApp sea WhatsApp.
+   */
+
+  /** Los módulos de la página, sea cual sea el empaquetador. */
+  function modulosDeLaPagina() {
+    // Webpack: se empuja un trozo falso y en la devolución llega la función de
+    // pedir modulos. Es la unica forma de alcanzarla desde afuera.
+    const clave = Object.keys(window).find((k) => /^webpackChunk/i.test(k));
+    if (clave && Array.isArray(window[clave])) {
+      let pedir = null;
+      try {
+        window[clave].push([['whatswv' + Date.now()], {}, (r) => { pedir = r; }]);
+      } catch {
+        /* si el formato del trozo cambio, se sigue con las otras vias */
+      }
+      if (pedir?.m) {
+        return Object.keys(pedir.m).map((id) => {
+          try {
+            return pedir(id);
+          } catch {
+            return null;
+          }
+        });
+      }
+    }
+
+    // El otro empaquetador que usa WhatsApp, con los modulos en un mapa.
+    const mapa = window.__debug?.modulesMap ?? window.__d?.modulesMap;
+    if (mapa && typeof mapa === 'object') {
+      return Object.values(mapa).map((m) => {
+        try {
+          return m?.publicModule?.exports ?? m?.exports ?? null;
+        } catch {
+          return null;
+        }
+      });
+    }
+
+    return [];
+  }
+
+  /** Los modelos de una colección, se llame como se llame el método. */
+  function modelosDe(coleccion) {
+    try {
+      if (typeof coleccion?.getModelsArray === 'function') return coleccion.getModelsArray();
+      if (Array.isArray(coleccion?._models)) return coleccion._models;
+      if (Array.isArray(coleccion?.models)) return coleccion.models;
+    } catch {
+      /* una coleccion a medio cargar no puede tumbar la busqueda */
+    }
+    return [];
+  }
+
+  /**
+   * La colección de mensajes de WhatsApp, buscada por su contenido.
+   *
+   * Se mira un modelo: si tiene fecha y se le puede sacar de qué chat es, es la
+   * colección de mensajes. Da igual cómo se llame el módulo o la propiedad.
+   */
+  function coleccionDeMensajes() {
+    let mejor = null;
+
+    for (const modulo of modulosDeLaPagina()) {
+      if (!modulo || typeof modulo !== 'object') continue;
+
+      for (const nombre of Object.keys(modulo)) {
+        let valor;
+        try {
+          valor = modulo[nombre];
+        } catch {
+          continue;
+        }
+
+        if (!valor || typeof valor !== 'object') continue;
+
+        const modelos = modelosDe(valor);
+        if (modelos.length === 0) continue;
+
+        const primero = modelos[0];
+        if (!deQuienEs(primero) || cuandoDe(primero) === null) continue;
+
+        // La mas grande: WhatsApp tiene varias colecciones de mensajes (la del
+        // chat abierto, la de estados) y la buena es la que lo tiene todo.
+        if (!mejor || modelos.length > mejor.modelos.length) {
+          mejor = { nombre, modelos };
+        }
+      }
+    }
+
+    return mejor;
+  }
+
+  /** Los mensajes que tenga WhatsApp en memoria, ya en claro. */
+  function mensajesDeWhatsApp() {
+    const coleccion = coleccionDeMensajes();
+    if (!coleccion) return [];
+
+    console.log(`[whatswv] coleccion "${coleccion.nombre}" con ${coleccion.modelos.length} mensajes`);
+    const salida = [];
+
+    for (const m of coleccion.modelos) {
+      const de = deQuienEs(m);
+      const segundos = cuandoDe(m);
+      if (!de || !segundos) continue;
+
+      const telefono = telefonoDe(de.jid);
+      if (!telefono) continue;
+
+      const texto = textoDe(m);
+      if (!texto) continue;
+
+      salida.push({ telefono, mio: de.mio, segundos, texto, opaco: null });
+    }
+
+    return salida;
+  }
+
+  /** Dice si esta vía sirve, sin exportar nada. */
+  function probarViaWhatsApp(avisar) {
+    const clave = Object.keys(window).find((k) => /^webpackChunk/i.test(k));
+    console.log('[whatswv] empaquetador:', clave ?? (window.__debug ? '__debug' : 'ninguno reconocido'));
+
+    const modulos = modulosDeLaPagina().filter(Boolean);
+    console.log('[whatswv] modulos alcanzados:', modulos.length);
+
+    if (modulos.length === 0) {
+      avisar('No pude alcanzar el codigo de WhatsApp. Mira la consola.');
+      return;
+    }
+
+    const mensajes = mensajesDeWhatsApp();
+    if (mensajes.length === 0) {
+      avisar(`Alcance ${modulos.length} modulos pero ninguna coleccion de mensajes. Mira la consola.`);
+      return;
+    }
+
+    console.log('[whatswv] ejemplo:', mensajes[0]);
+    avisar(`${mensajes.length} mensajes en claro desde WhatsApp. Ya puedes usar "Chats (JSON)".`);
   }
 
   // --- abrir la caja ----------------------------------------------------------
@@ -898,6 +1076,7 @@
       av(`Listo: ${n} chats en whatswv-chats.json`);
     });
 
+    boton('Probar via WhatsApp', false, (av) => probarViaWhatsApp(av));
     boton('Probar descifrado', false, (av) => probarDescifrado(fuentes, av));
     boton('Copiar informe', false, (av) => copiarInforme(tiendas, av));
     boton('Ver que hay', false, (av) => diagnostico(tiendas, av));
