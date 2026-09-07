@@ -331,7 +331,7 @@
   async function sacarChats(fuentes, avisar) {
     if (!fuentes.mensaje) {
       throw new Error(
-        'no encontre ninguna tienda de mensajes. Pulsa "Ver que hay" y pasame lo que salga en la consola',
+        'no encontre ninguna tienda de mensajes. Pulsa "Copiar informe" y pasame lo que salga',
       );
     }
 
@@ -345,45 +345,84 @@
       });
     }
 
-    const chats = new Map();
+    /*
+     * Primera pasada: juntar las filas.
+     *
+     * En dos pasadas y no en una porque descifrar es asincrono y el recorrido
+     * del cursor no lo es: si se espera dentro del recorrido, la transaccion de
+     * IndexedDB se cierra sola y el resto de las filas se pierde.
+     */
+    const crudos = [];
     let leidos = 0;
     let ultimoAviso = 0;
-    let descartados = 0;
-    let ejemploDescartado = null;
 
     for (const t of fuentes.todosMensajes) {
       await recorrer(t.db, t.tienda, (fila, clave) => {
         leidos++;
         if (leidos - ultimoAviso >= 5000) {
           ultimoAviso = leidos;
-          avisar(`${leidos.toLocaleString('es')} mensajes leidos…`);
+          avisar(`${leidos.toLocaleString('es')} filas leidas…`);
         }
 
         const de = deQuienEs(fila, clave);
         const segundos = cuandoDe(fila);
-        const texto = textoDe(fila);
-        const telefono = de && telefonoDe(de.jid);
+        if (!de || !segundos) return;
 
-        if (!telefono || !segundos || !texto) {
-          descartados++;
-          // Se guarda uno para poder mirarlo en la consola: si sale todo
-          // descartado, es la unica forma de saber que tienen adentro estas
-          // filas sin adivinar.
-          if (!ejemploDescartado) ejemploDescartado = { fila, clave };
-          return;
-        }
+        const telefono = telefonoDe(de.jid);
+        if (!telefono) return;
 
-        if (!chats.has(telefono)) chats.set(telefono, []);
-        chats.get(telefono).push({
-          cuando: new Date(segundos * 1000).toISOString(),
+        crudos.push({
+          telefono,
           mio: de.mio,
-          texto,
+          segundos,
+          texto: textoDe(fila),
+          opaco: fila?.msgRowOpaqueData ?? null,
         });
       });
     }
 
-    if (ejemploDescartado) {
-      console.log('[whatswv] ejemplo de fila que no se pudo leer:', ejemploDescartado);
+    // Segunda pasada: abrir los que traen el texto cifrado.
+    const cerrados = crudos.filter((c) => !c.texto && c.opaco);
+    let abiertos = 0;
+    let fallos = 0;
+    let primerFallo = null;
+
+    if (cerrados.length) {
+      const llaves = await cargarLlaves(fuentes.tiendas);
+      avisar(`descifrando ${cerrados.length.toLocaleString('es')} mensajes…`);
+
+      for (let i = 0; i < cerrados.length; i++) {
+        if (i % 500 === 0) {
+          avisar(`descifrando ${i.toLocaleString('es')} de ${cerrados.length.toLocaleString('es')}…`);
+        }
+
+        try {
+          const texto = buscarTexto(await abrirOpaco(cerrados[i].opaco, llaves));
+          if (texto) {
+            cerrados[i].texto = texto;
+            abiertos++;
+          } else {
+            fallos++;
+          }
+        } catch (e) {
+          fallos++;
+          if (!primerFallo) primerFallo = e;
+        }
+      }
+
+      if (primerFallo) console.error('[whatswv] primer fallo al descifrar:', primerFallo);
+      console.log(`[whatswv] descifrados ${abiertos}, fallidos ${fallos}`);
+    }
+
+    const chats = new Map();
+    for (const c of crudos) {
+      if (!c.texto) continue;
+      if (!chats.has(c.telefono)) chats.set(c.telefono, []);
+      chats.get(c.telefono).push({
+        cuando: new Date(c.segundos * 1000).toISOString(),
+        mio: c.mio,
+        texto: c.texto,
+      });
     }
 
     const salida = [];
@@ -398,7 +437,8 @@
 
     avisar(
       `${salida.length} chats de ${leidos.toLocaleString('es')} filas` +
-        (descartados ? ` (${descartados.toLocaleString('es')} sin texto o de grupo)` : ''),
+        (abiertos ? `, ${abiertos.toLocaleString('es')} descifrados` : '') +
+        (fallos ? ` (${fallos.toLocaleString('es')} no se pudieron abrir)` : ''),
     );
 
     bajar(
@@ -408,6 +448,164 @@
     );
 
     return salida.length;
+  }
+
+  // --- abrir la caja ----------------------------------------------------------
+
+  /*
+   * El texto de los mensajes no está en el registro: está en
+   * `msgRowOpaqueData`, cifrado, con la forma {_data, iv, _keyId, _scheme}.
+   * Por eso una lectura directa da cero mensajes aunque las filas estén ahí.
+   *
+   * La llave está en la misma máquina, en la base `wawc_db_enc`. Es cifrado en
+   * reposo: protege contra husmear el disco, no contra código corriendo dentro
+   * de la página, que es donde corre esto. Se descifra con la API del propio
+   * navegador y la llave nunca sale de él.
+   */
+
+  /** Los bytes de algo, venga como sea. */
+  function aBytes(v) {
+    if (!v) return null;
+    if (v instanceof Uint8Array) return v;
+    if (ArrayBuffer.isView(v)) return new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+    if (v instanceof ArrayBuffer) return new Uint8Array(v);
+    if (Array.isArray(v)) return new Uint8Array(v);
+    // Un objeto con claves 0,1,2… es un buffer que perdió su tipo al copiarse.
+    if (typeof v === 'object') {
+      const claves = Object.keys(v);
+      if (claves.length && claves.every((k) => /^\d+$/.test(k))) {
+        return new Uint8Array(claves.map((k) => v[k]));
+      }
+    }
+    if (typeof v === 'string') {
+      try {
+        return Uint8Array.from(atob(v), (c) => c.charCodeAt(0));
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /** Las llaves de cifrado, por id. */
+  async function cargarLlaves(tiendas) {
+    const mapa = new Map();
+
+    for (const t of tiendas) {
+      // Las bases de llaves se llaman con "enc"; igual se acepta cualquier
+      // tienda "keys" por si en otra version esta en otro lado.
+      if (!t.db || (!/enc/i.test(t.base) && !/key/i.test(t.tienda))) continue;
+
+      await recorrer(t.db, t.tienda, (fila) => {
+        if (!fila || typeof fila !== 'object') return;
+        const llave = fila.key ?? fila.keyPair ?? fila.value;
+        if (llave === undefined) return;
+        mapa.set(String(fila.id ?? fila.keyId ?? mapa.size), llave);
+      });
+    }
+
+    return mapa;
+  }
+
+  /**
+   * Descifra un `msgRowOpaqueData`.
+   *
+   * La llave suele venir ya como CryptoKey: entonces no se puede leer, pero SÍ
+   * se puede usar para descifrar, que es todo lo que hace falta. Si viene en
+   * bytes se importa.
+   */
+  async function abrirOpaco(op, llaves) {
+    const datos = aBytes(op?._data);
+    const iv = aBytes(op?.iv);
+    if (!datos || !iv) return null;
+
+    let llave = llaves.get(String(op._keyId));
+    // Con una sola llave en la base, el id puede no coincidir; se prueba igual.
+    if (llave === undefined && llaves.size === 1) llave = [...llaves.values()][0];
+    if (llave === undefined) return null;
+
+    if (!(llave instanceof CryptoKey)) {
+      const bytes = aBytes(llave);
+      if (!bytes) return null;
+      llave = await crypto.subtle.importKey('raw', bytes, 'AES-GCM', false, ['decrypt']);
+    }
+
+    const claro = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, llave, datos);
+    const texto = new TextDecoder().decode(claro);
+
+    try {
+      return JSON.parse(texto);
+    } catch {
+      return texto;
+    }
+  }
+
+  const CAMPOS_TEXTO = ['body', 'caption', 'text', 'conversation'];
+
+  /**
+   * Busca el texto dentro de lo descifrado.
+   *
+   * A tientas y por todo el objeto: no se sabe con qué forma sale, y lo que
+   * importa es encontrar el mensaje, no reproducir la estructura de WhatsApp.
+   */
+  function buscarTexto(valor, nivel = 0) {
+    if (typeof valor === 'string') return valor.trim();
+    if (!valor || typeof valor !== 'object' || nivel > 4) return '';
+
+    for (const campo of CAMPOS_TEXTO) {
+      const v = valor[campo];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+
+    for (const v of Object.values(valor)) {
+      const encontrado = buscarTexto(v, nivel + 1);
+      if (encontrado) return encontrado;
+    }
+
+    return '';
+  }
+
+  /** Descifra unos pocos y cuenta qué salió, sin exportar nada. */
+  async function probarDescifrado(fuentes, avisar) {
+    const llaves = await cargarLlaves(fuentes.tiendas);
+    console.log('[whatswv] llaves encontradas:', llaves.size, [...llaves.keys()]);
+
+    if (llaves.size === 0) {
+      avisar('No encontre ninguna llave de cifrado. El detalle quedo en la consola.');
+      return;
+    }
+
+    const muestras = [];
+    for (const t of fuentes.todosMensajes) {
+      if (muestras.length >= 3) break;
+      await recorrer(
+        t.db,
+        t.tienda,
+        (fila) => {
+          if (fila?.msgRowOpaqueData && muestras.length < 3) muestras.push(fila.msgRowOpaqueData);
+        },
+        200,
+      );
+    }
+
+    if (muestras.length === 0) {
+      avisar('Ningun mensaje trae msgRowOpaqueData. El detalle quedo en la consola.');
+      return;
+    }
+
+    let bien = 0;
+    for (const op of muestras) {
+      try {
+        const claro = await abrirOpaco(op, llaves);
+        console.log('[whatswv] descifrado:', claro);
+        console.log('[whatswv] texto encontrado:', JSON.stringify(buscarTexto(claro)).slice(0, 120));
+        if (buscarTexto(claro)) bien++;
+      } catch (e) {
+        console.error('[whatswv] no se pudo descifrar:', e, 'esquema:', op._scheme, 'keyId:', op._keyId);
+      }
+    }
+
+    avisar(`Descifrados ${bien} de ${muestras.length}. Mira la consola.`);
   }
 
   /**
@@ -620,6 +818,7 @@
       mensaje: elegir(tiendas, 'mensaje'),
       todosContactos: tiendas.filter((t) => t.clase === 'contacto'),
       todosMensajes: tiendas.filter((t) => t.clase === 'mensaje'),
+      tiendas,
     };
 
     boton('Contactos (CSV)', true, async (av) => {
@@ -632,6 +831,7 @@
       av(`Listo: ${n} chats en whatswv-chats.json`);
     });
 
+    boton('Probar descifrado', false, (av) => probarDescifrado(fuentes, av));
     boton('Copiar informe', false, (av) => copiarInforme(tiendas, av));
     boton('Ver que hay', false, (av) => diagnostico(tiendas, av));
 
