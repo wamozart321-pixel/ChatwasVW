@@ -38,5 +38,11 @@ Para tocar el servidor y no la base de desarrollo, agregar `--produccion`.
   cliente escriba, la conversación se abre normal.
 - **No manda nada a ningún lado.** Lee la base local del navegador y arma un
   archivo. No habla con los servidores de WhatsApp ni con los nuestros.
-- Si el panel dice que no encuentra la base, el botón **Ver qué hay** imprime en
-  la consola los nombres que sí existen. Con eso se ajusta el script.
+- **No abras el CSV en Excel para revisarlo.** Un telefono de doce digitos lo
+  lee como cantidad y lo muestra `5,73002E+11`; si guardas ahi, los digitos del
+  final se pierden de verdad. El archivo ya sale escrito para que Excel lo
+  respete, pero lo mas seguro es pasarlo directo al importador, que de todos
+  modos te dice que va a agregar antes de tocar nada.
+- Si el panel dice **NO ENCONTRADA** al lado de Contactos o Mensajes, el boton
+  **Ver qué hay** imprime en la consola cada base con cada tienda y cuantas
+  filas tiene. Con eso se ajusta el script; sin eso es adivinar.

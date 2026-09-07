@@ -18,9 +18,14 @@
  * navegador. Se lee de ahí y no de los módulos internos de la página, que es lo
  * que hacen las extensiones: esos módulos no tienen nombre estable —son código
  * empaquetado y minificado— y cada despliegue de WhatsApp los renumera, así que
- * una herramienta hecha así se rompe sola cada pocas semanas. Los nombres de la
- * base ("contact", "chat", "message") vienen del modelo de datos y llevan años
- * iguales.
+ * una herramienta hecha así se rompe sola cada pocas semanas.
+ *
+ * Pero tampoco alcanza con confiar en los nombres de la base. WhatsApp reparte
+ * sus datos en VARIAS bases y les cambia el nombre entre versiones: los
+ * contactos pueden estar en una y los mensajes en otra. Por eso se recorren
+ * todas y cada tienda se clasifica MIRANDO UN REGISTRO, no por cómo se llama.
+ * Un mensaje se reconoce porque su identificador empieza por "true_" o "false_"
+ * y trae fecha; un contacto, porque su identificador es un jid y trae nombre.
  *
  * Esto NO habla con los servidores de WhatsApp ni manda nada a ningún lado: lee
  * lo que ya está en este computador y arma un archivo. Son los datos del propio
@@ -34,82 +39,18 @@
 (() => {
   const ID_PANEL = 'whatswv-exportador';
 
-  // --- lectura de la base ----------------------------------------------------
-
-  /** Los nombres de tienda que buscamos, en el orden en que los preferimos. */
-  const TIENDAS = {
-    contacto: ['contact', 'contacts'],
-    chat: ['chat', 'chats'],
-    mensaje: ['message', 'messages'],
-  };
-
-  async function abrirBase() {
-    const bases = await indexedDB.databases();
-
-    for (const { name } of bases) {
-      if (!name) continue;
-
-      const db = await new Promise((ok, mal) => {
-        const p = indexedDB.open(name);
-        p.onsuccess = () => ok(p.result);
-        p.onerror = () => mal(p.error);
-        // Si la pagina esta usando la base con otra version, no forzamos nada.
-        p.onblocked = () => mal(new Error('base ocupada'));
-      }).catch(() => null);
-
-      if (!db) continue;
-
-      const tiene = (candidatos) => candidatos.find((c) => db.objectStoreNames.contains(c));
-      const contacto = tiene(TIENDAS.contacto);
-      const mensaje = tiene(TIENDAS.mensaje);
-
-      if (contacto || mensaje) {
-        return { db, contacto, mensaje, chat: tiene(TIENDAS.chat) };
-      }
-
-      db.close();
-    }
-
-    return null;
-  }
-
-  /**
-   * Recorre una tienda entera con un cursor.
-   *
-   * Con cursor y no con getAll(): la tienda de mensajes de un numero de trabajo
-   * puede tener cientos de miles de filas, y getAll() las arma todas en memoria
-   * de golpe y cuelga la pestana.
-   */
-  function recorrer(db, tienda, porCada) {
-    return new Promise((ok, mal) => {
-      const t = db.transaction(tienda, 'readonly');
-      const p = t.objectStore(tienda).openCursor();
-      let n = 0;
-
-      p.onsuccess = () => {
-        const cursor = p.result;
-        if (!cursor) return ok(n);
-        n++;
-        try {
-          porCada(cursor.value, cursor.key);
-        } catch {
-          /* una fila rara no puede tumbar la exportacion entera */
-        }
-        cursor.continue();
-      };
-
-      p.onerror = () => mal(p.error);
-      t.onerror = () => mal(t.error);
-    });
-  }
-
-  // --- entender lo que hay adentro -------------------------------------------
+  // --- entender un registro ---------------------------------------------------
 
   /** El identificador puede venir como texto o como objeto, segun la version. */
   function comoTexto(id) {
     if (typeof id === 'string') return id;
     if (id && typeof id === 'object') return id._serialized || id.id || '';
     return '';
+  }
+
+  /** El identificador de una fila, venga en el campo `id` o en la clave. */
+  function idDe(fila, clave) {
+    return comoTexto(fila?.id) || comoTexto(clave) || comoTexto(fila?.key);
   }
 
   /**
@@ -126,12 +67,23 @@
     return digitos.length >= 8 ? digitos : null;
   }
 
-  const NOMBRES = ['name', 'saved_name', 'verifiedName', 'pushname', 'notify', 'formattedName', 'shortName'];
+  const NOMBRES = [
+    'name',
+    'saved_name',
+    'verifiedName',
+    'pushname',
+    'notify',
+    'formattedName',
+    'formattedTitle',
+    'shortName',
+  ];
 
   function nombreDe(fila) {
     for (const campo of NOMBRES) {
       const v = fila?.[campo];
-      if (typeof v === 'string' && v.trim() && !/^\+?\d[\d\s()-]*$/.test(v.trim())) {
+      // Un "nombre" que es el propio numero no es un nombre: asi deja WhatsApp
+      // a los contactos que no estan en la agenda.
+      if (typeof v === 'string' && v.trim() && !/^\+?[\d\s()-]+$/.test(v.trim())) {
         return v.trim();
       }
     }
@@ -146,24 +98,161 @@
    * sirve aunque la fila no traiga los campos `from` y `to`.
    */
   function deQuienEs(fila, clave) {
-    const id = comoTexto(fila?.id) || comoTexto(clave);
-    const partes = id.split('_');
-    if (partes.length < 3) return null;
+    const partes = idDe(fila, clave).split('_');
+    if (partes.length < 3 || (partes[0] !== 'true' && partes[0] !== 'false')) return null;
+    if (!partes[1].includes('@')) return null;
     return { mio: partes[0] === 'true', jid: partes[1] };
+  }
+
+  /** Cuándo se mandó, en segundos. WhatsApp lo guarda en `t`. */
+  function cuandoDe(fila) {
+    const s = Number(fila?.t ?? fila?.timestamp ?? fila?.messageTimestamp);
+    return Number.isFinite(s) && s > 0 ? s : null;
   }
 
   /** El texto de un mensaje: el cuerpo, o el pie de foto si es multimedia. */
   function textoDe(fila) {
-    const t = fila?.body ?? fila?.caption ?? '';
+    const t = fila?.body ?? fila?.caption ?? fila?.text ?? '';
     return typeof t === 'string' ? t.trim() : '';
   }
 
-  // --- armar los archivos ----------------------------------------------------
+  // --- recorrer las bases -----------------------------------------------------
+
+  function abrir(nombre) {
+    return new Promise((ok) => {
+      let listo = false;
+      const p = indexedDB.open(nombre);
+      p.onsuccess = () => {
+        listo = true;
+        ok(p.result);
+      };
+      p.onerror = () => ok(null);
+      // Si otra pestana tiene la base abierta con otra version, `open` se queda
+      // esperando para siempre y el panel nunca responderia.
+      p.onblocked = () => ok(null);
+      setTimeout(() => listo || ok(null), 4000);
+    });
+  }
+
+  /**
+   * Recorre una tienda con un cursor.
+   *
+   * Con cursor y no con getAll(): la tienda de mensajes de un numero de trabajo
+   * puede tener cientos de miles de filas, y getAll() las arma todas en memoria
+   * de golpe y cuelga la pestana. `tope` corta antes, para las muestras.
+   */
+  function recorrer(db, tienda, porCada, tope) {
+    return new Promise((ok) => {
+      let t;
+      try {
+        t = db.transaction(tienda, 'readonly');
+      } catch {
+        return ok(0);
+      }
+
+      const p = t.objectStore(tienda).openCursor();
+      let n = 0;
+
+      p.onsuccess = () => {
+        const cursor = p.result;
+        if (!cursor) return ok(n);
+        n++;
+        try {
+          porCada(cursor.value, cursor.key);
+        } catch {
+          /* una fila rara no puede tumbar la exportacion entera */
+        }
+        if (tope && n >= tope) return ok(n);
+        cursor.continue();
+      };
+
+      p.onerror = () => ok(n);
+      t.onerror = () => ok(n);
+    });
+  }
+
+  async function muestraDe(db, tienda, cuantos) {
+    const filas = [];
+    await recorrer(db, tienda, (fila, clave) => filas.push({ fila, clave }), cuantos);
+    return filas;
+  }
+
+  /**
+   * Qué guarda una tienda, mirando lo que hay adentro.
+   *
+   * Por el contenido y no por el nombre: WhatsApp reparte los datos en varias
+   * bases y les cambia el nombre entre versiones. La primera version de esto se
+   * quedaba con la primera base que tuviera contactos y no seguia buscando la de
+   * mensajes, asi que el archivo de chats salia vacio sin decir por que.
+   */
+  function clasificar(muestra) {
+    let contactos = 0;
+    let mensajes = 0;
+
+    for (const { fila, clave } of muestra) {
+      if (deQuienEs(fila, clave) && cuandoDe(fila) !== null) {
+        mensajes++;
+      } else if (idDe(fila, clave).includes('@')) {
+        contactos++;
+      }
+    }
+
+    if (mensajes > 0) return 'mensaje';
+    if (contactos > 0) return 'contacto';
+    return null;
+  }
+
+  /**
+   * Todas las tiendas de todas las bases, ya clasificadas.
+   *
+   * Las bases quedan abiertas: cerrarlas aca obligaria a volver a abrirlas para
+   * exportar, y entre una cosa y otra la pagina puede subir la version y dejar
+   * el `open` esperando.
+   */
+  async function inventario() {
+    const bases = (await indexedDB.databases().catch(() => [])) ?? [];
+    const tiendas = [];
+
+    for (const { name } of bases) {
+      if (!name) continue;
+      const db = await abrir(name);
+      if (!db) {
+        tiendas.push({ base: name, tienda: '(no se pudo abrir)', clase: null, muestra: 0 });
+        continue;
+      }
+
+      for (const tienda of [...db.objectStoreNames]) {
+        const muestra = await muestraDe(db, tienda, 40);
+        tiendas.push({ db, base: name, tienda, clase: clasificar(muestra), muestra: muestra.length });
+      }
+    }
+
+    return tiendas;
+  }
+
+  /** La tienda de cada clase: la que traiga registros de esa clase. */
+  function elegir(tiendas, clase) {
+    return tiendas.find((t) => t.clase === clase && t.muestra > 0) ?? null;
+  }
+
+  // --- armar los archivos -----------------------------------------------------
 
   /** Una celda de CSV. Entre comillas si trae coma, comilla o salto de linea. */
   function celda(valor) {
     const t = String(valor ?? '');
     return /[",\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  }
+
+  /**
+   * El telefono, escrito para que Excel no lo arruine.
+   *
+   * Un numero de doce digitos lo lee como cantidad y lo muestra 5,73002E+11: al
+   * guardar, los digitos del final se pierden de verdad y el telefono queda
+   * inservible. La formula ="..." es la manera de decirle que eso es texto.
+   * El importador quita todo lo que no sea digito, asi que le da igual.
+   */
+  function celdaTelefono(telefono) {
+    return '="' + telefono + '"';
   }
 
   function bajar(nombre, contenido, tipo) {
@@ -177,54 +266,51 @@
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
 
-  async function sacarContactos(base, avisar) {
-    if (!base.contacto) throw new Error('esta version no tiene la tienda de contactos');
+  async function sacarContactos(fuentes, avisar) {
+    if (!fuentes.contacto) throw new Error('no encontre ninguna tienda de contactos');
 
     const porTelefono = new Map();
 
-    await recorrer(base.db, base.contacto, (fila, clave) => {
-      const telefono = telefonoDe(comoTexto(fila?.id) || comoTexto(clave));
-      if (!telefono) return;
+    for (const t of fuentes.todosContactos) {
+      await recorrer(t.db, t.tienda, (fila, clave) => {
+        const telefono = telefonoDe(idDe(fila, clave));
+        if (!telefono) return;
 
-      const nombre = nombreDe(fila);
-      // Si el mismo numero aparece dos veces, gana el que traiga nombre.
-      if (!porTelefono.has(telefono) || (nombre && !porTelefono.get(telefono))) {
-        porTelefono.set(telefono, nombre);
-      }
-    });
-
-    avisar(`${porTelefono.size} contactos`);
-
-    const filas = [['telefono', 'nombre'].join(',')];
-    for (const [telefono, nombre] of porTelefono) {
-      filas.push(celda(telefono) + ',' + celda(nombre ?? ''));
+        const nombre = nombreDe(fila);
+        // Si el mismo numero aparece en dos tiendas, gana el que traiga nombre.
+        if (!porTelefono.has(telefono) || (nombre && !porTelefono.get(telefono))) {
+          porTelefono.set(telefono, nombre);
+        }
+      });
     }
 
-    // El BOM del principio es para que Excel abra el archivo como UTF-8; sin el
-    // muestra "salÃ³n" donde dice "salón".
+    const conNombre = [...porTelefono.values()].filter(Boolean).length;
+    avisar(`${porTelefono.size} contactos (${conNombre} con nombre)`);
+
+    const filas = ['telefono,nombre'];
+    for (const [telefono, nombre] of porTelefono) {
+      filas.push(celdaTelefono(telefono) + ',' + celda(nombre ?? ''));
+    }
+
+    // El caracter invisible del principio es para que Excel abra el archivo como
+    // UTF-8; sin el muestra "salÃ³n" donde dice "salón".
     bajar('whatswv-contactos.csv', '\ufeff' + filas.join('\n') + '\n', 'text/csv;charset=utf-8');
     return porTelefono.size;
   }
 
-  async function sacarChats(base, avisar) {
-    if (!base.mensaje) throw new Error('esta version no tiene la tienda de mensajes');
-
-    // Los nombres salen de los contactos, que es donde estan bien; el chat solo
-    // se usa de respaldo para los que no estan en la agenda.
-    const nombres = new Map();
-
-    if (base.contacto) {
-      await recorrer(base.db, base.contacto, (fila, clave) => {
-        const telefono = telefonoDe(comoTexto(fila?.id) || comoTexto(clave));
-        const nombre = nombreDe(fila);
-        if (telefono && nombre) nombres.set(telefono, nombre);
-      });
+  async function sacarChats(fuentes, avisar) {
+    if (!fuentes.mensaje) {
+      throw new Error(
+        'no encontre ninguna tienda de mensajes. Pulsa "Ver que hay" y pasame lo que salga en la consola',
+      );
     }
 
-    if (base.chat) {
-      await recorrer(base.db, base.chat, (fila, clave) => {
-        const telefono = telefonoDe(comoTexto(fila?.id) || comoTexto(clave));
-        const nombre = nombreDe(fila) || (typeof fila?.formattedTitle === 'string' ? fila.formattedTitle : null);
+    // Los nombres salen de los contactos, que es donde estan bien.
+    const nombres = new Map();
+    for (const t of fuentes.todosContactos) {
+      await recorrer(t.db, t.tienda, (fila, clave) => {
+        const telefono = telefonoDe(idDe(fila, clave));
+        const nombre = nombreDe(fila);
         if (telefono && nombre && !nombres.has(telefono)) nombres.set(telefono, nombre);
       });
     }
@@ -232,35 +318,43 @@
     const chats = new Map();
     let leidos = 0;
     let ultimoAviso = 0;
+    let descartados = 0;
+    let ejemploDescartado = null;
 
-    await recorrer(base.db, base.mensaje, (fila, clave) => {
-      leidos++;
-      if (leidos - ultimoAviso >= 5000) {
-        ultimoAviso = leidos;
-        avisar(`${leidos.toLocaleString('es')} mensajes leidos…`);
-      }
+    for (const t of fuentes.todosMensajes) {
+      await recorrer(t.db, t.tienda, (fila, clave) => {
+        leidos++;
+        if (leidos - ultimoAviso >= 5000) {
+          ultimoAviso = leidos;
+          avisar(`${leidos.toLocaleString('es')} mensajes leidos…`);
+        }
 
-      const de = deQuienEs(fila, clave);
-      if (!de) return;
+        const de = deQuienEs(fila, clave);
+        const segundos = cuandoDe(fila);
+        const texto = textoDe(fila);
+        const telefono = de && telefonoDe(de.jid);
 
-      const telefono = telefonoDe(de.jid);
-      if (!telefono) return;
+        if (!telefono || !segundos || !texto) {
+          descartados++;
+          // Se guarda uno para poder mirarlo en la consola: si sale todo
+          // descartado, es la unica forma de saber que tienen adentro estas
+          // filas sin adivinar.
+          if (!ejemploDescartado) ejemploDescartado = { fila, clave };
+          return;
+        }
 
-      const texto = textoDe(fila);
-      if (!texto) return;
-
-      // `t` viene en segundos. Sin fecha no sirve: quedaria fuera de orden en el
-      // hilo y el importador no podria calcularle un identificador estable.
-      const segundos = Number(fila?.t ?? fila?.timestamp);
-      if (!Number.isFinite(segundos) || segundos <= 0) return;
-
-      if (!chats.has(telefono)) chats.set(telefono, []);
-      chats.get(telefono).push({
-        cuando: new Date(segundos * 1000).toISOString(),
-        mio: de.mio,
-        texto,
+        if (!chats.has(telefono)) chats.set(telefono, []);
+        chats.get(telefono).push({
+          cuando: new Date(segundos * 1000).toISOString(),
+          mio: de.mio,
+          texto,
+        });
       });
-    });
+    }
+
+    if (ejemploDescartado) {
+      console.log('[whatswv] ejemplo de fila que no se pudo leer:', ejemploDescartado);
+    }
 
     const salida = [];
     for (const [telefono, mensajes] of chats) {
@@ -272,7 +366,11 @@
     // mano, lo que importa esta arriba.
     salida.sort((a, b) => b.mensajes.length - a.mensajes.length);
 
-    avisar(`${salida.length} chats, ${leidos.toLocaleString('es')} mensajes revisados`);
+    avisar(
+      `${salida.length} chats de ${leidos.toLocaleString('es')} filas` +
+        (descartados ? ` (${descartados.toLocaleString('es')} sin texto o de grupo)` : ''),
+    );
+
     bajar(
       'whatswv-chats.json',
       JSON.stringify({ exportado: new Date().toISOString(), chats: salida }, null, 1),
@@ -283,25 +381,41 @@
   }
 
   /**
-   * Qué encontró, sin exportar nada.
+   * Todo lo que hay, sin exportar nada.
    *
-   * Está para cuando algo no cuadra: si WhatsApp cambia los nombres de sus
-   * tiendas, esto lo dice en una línea y se arregla el script, en vez de quedar
-   * adivinando por qué salió vacío.
+   * Está para cuando algo no cuadra: imprime cada base con cada tienda, cuántas
+   * filas tiene y qué se creyó que era. Con eso se ajusta el script en vez de
+   * quedar adivinando por qué salió vacío.
    */
-  async function diagnostico(base, avisar) {
-    const partes = [];
-    for (const tienda of [base.contacto, base.chat, base.mensaje]) {
-      if (!tienda) continue;
-      let n = 0;
-      await recorrer(base.db, tienda, () => n++);
-      partes.push(`${tienda}: ${n.toLocaleString('es')}`);
+  function diagnostico(tiendas, avisar) {
+    console.log('[whatswv] esto es lo que hay:');
+    console.table(
+      tiendas.map((t) => ({
+        base: t.base,
+        tienda: t.tienda,
+        clase: t.clase ?? '(no se reconocio)',
+        muestra: t.muestra,
+      })),
+    );
+
+    for (const t of tiendas) {
+      if (t.clase || !t.muestra) continue;
+      console.log(`[whatswv] ejemplo de ${t.base} / ${t.tienda}:`);
     }
-    avisar(`${base.db.name} — ${partes.join(' · ') || 'sin tiendas conocidas'}`);
-    console.log('[whatswv] tiendas en', base.db.name, [...base.db.objectStoreNames]);
+
+    const resumen = tiendas
+      .filter((t) => t.clase)
+      .map((t) => `${t.tienda}=${t.clase}`)
+      .join(', ');
+
+    avisar(
+      `${tiendas.length} tiendas en ${new Set(tiendas.map((t) => t.base)).size} bases. ` +
+        (resumen || 'ninguna reconocida') +
+        '. El detalle quedo en la consola.',
+    );
   }
 
-  // --- el panel --------------------------------------------------------------
+  // --- el panel ---------------------------------------------------------------
 
   const VERDE = '#1F9D55';
 
@@ -328,7 +442,7 @@
     const estado = document.createElement('div');
     estado.style.cssText =
       'margin-top:12px;padding:8px;border-radius:8px;background:#f4f4f5;color:#444;font-size:11px;min-height:32px';
-    estado.textContent = 'Buscando la base…';
+    estado.textContent = 'Buscando…';
 
     const cerrar = document.createElement('button');
     cerrar.textContent = '×';
@@ -350,12 +464,14 @@
       b.style.cssText = [
         'display:block', 'width:100%', 'margin-bottom:6px', 'padding:9px',
         'border-radius:8px', 'cursor:pointer', 'font:inherit', 'font-weight:600',
-        principal ? `background:${VERDE};color:#fff;border:0` : 'background:#fff;color:#444;border:1px solid #d4d4d8',
+        principal
+          ? `background:${VERDE};color:#fff;border:0`
+          : 'background:#fff;color:#444;border:1px solid #d4d4d8',
       ].join(';');
 
       b.onclick = async () => {
         const antes = b.textContent;
-        // Se desactivan los dos: dos lecturas a la vez sobre la misma base se
+        // Se desactivan todos: dos lecturas a la vez sobre la misma base se
         // pisan los avisos y no se entiende cual va.
         for (const otro of caja.querySelectorAll('button')) otro.disabled = true;
         b.textContent = 'Trabajando…';
@@ -378,38 +494,40 @@
     return { avisar, boton };
   }
 
-  // --- arranque --------------------------------------------------------------
+  // --- arranque ---------------------------------------------------------------
 
   (async () => {
     const { avisar, boton } = panel();
 
-    let base;
-    try {
-      base = await abrirBase();
-    } catch (e) {
-      avisar('No se pudo abrir la base: ' + (e?.message ?? e));
-      return;
-    }
+    const tiendas = await inventario();
 
-    if (!base) {
+    if (tiendas.length === 0) {
       avisar(
-        'No encontre la base de WhatsApp. Revisa que esto sea la pestana de web.whatsapp.com con la sesion abierta y los chats cargados.',
+        'No encontre ninguna base. Revisa que esto sea la pestana de web.whatsapp.com con la sesion abierta y los chats cargados.',
       );
       return;
     }
 
+    const fuentes = {
+      contacto: elegir(tiendas, 'contacto'),
+      mensaje: elegir(tiendas, 'mensaje'),
+      todosContactos: tiendas.filter((t) => t.clase === 'contacto'),
+      todosMensajes: tiendas.filter((t) => t.clase === 'mensaje'),
+    };
+
     boton('Contactos (CSV)', true, async (av) => {
-      const n = await sacarContactos(base, av);
+      const n = await sacarContactos(fuentes, av);
       av(`Listo: ${n} contactos en whatswv-contactos.csv`);
     });
 
     boton('Chats (JSON)', true, async (av) => {
-      const n = await sacarChats(base, av);
+      const n = await sacarChats(fuentes, av);
       av(`Listo: ${n} chats en whatswv-chats.json`);
     });
 
-    boton('Ver que hay', false, (av) => diagnostico(base, av));
+    boton('Ver que hay', false, (av) => diagnostico(tiendas, av));
 
-    avisar(`Base "${base.db.name}" lista. Elige que exportar.`);
+    const donde = (t) => (t ? `${t.base}/${t.tienda}` : 'NO ENCONTRADA');
+    avisar(`Contactos: ${donde(fuentes.contacto)}. Mensajes: ${donde(fuentes.mensaje)}.`);
   })();
 })();
