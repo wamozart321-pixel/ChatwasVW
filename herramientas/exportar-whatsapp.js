@@ -491,18 +491,61 @@
    * mensajes dura mientras WhatsApp sea WhatsApp.
    */
 
-  /** Los módulos de la página, sea cual sea el empaquetador. */
+  /**
+   * Los módulos de la página, sea cual sea el cargador.
+   *
+   * WhatsApp usa dos y hay que atender los dos. El de webpack tiene los módulos
+   * numerados; el otro —el que usa hoy— los tiene con NOMBRE, y ahí están todos
+   * los `WAWeb…`. Con nombre es mucho más firme: un número cambia en cada
+   * despliegue, pero el módulo de mensajes se sigue llamando igual.
+   */
   function modulosDeLaPagina() {
-    // Webpack: se empuja un trozo falso y en la devolución llega la función de
-    // pedir modulos. Es la unica forma de alcanzarla desde afuera.
+    // Con nombre. Va primero porque es el que usa WhatsApp ahora.
+    if (typeof window.__debug === 'function' && typeof window.importNamespace === 'function') {
+      let mapa = null;
+      try {
+        // __debug es una FUNCION, no un objeto: hay que llamarla. Leerlo como
+        // objeto daba undefined y esta via quedaba muerta sin decir nada.
+        mapa = window.__debug().modulesMap;
+      } catch {
+        /* si cambio, quedan las otras vias */
+      }
+
+      if (mapa && typeof mapa === 'object') {
+        // WhatsApp envuelve sus modulos en un guardian que traga los errores y
+        // devuelve vacio; esto lo aparta mientras se piden.
+        try {
+          window.ErrorGuard?.skipGuardGlobal?.(true);
+        } catch {
+          /* si no esta, se pide igual */
+        }
+
+        const salida = [];
+        for (const nombre of Object.keys(mapa)) {
+          // Solo los suyos. Pedir los demas es lento y no aporta nada.
+          if (!/^(?:use)?WA/.test(nombre)) continue;
+          try {
+            salida.push(window.importNamespace(nombre));
+          } catch {
+            /* un modulo que no carga no puede parar la busqueda */
+          }
+        }
+
+        if (salida.length) return salida;
+      }
+    }
+
+    // Numerados. Se empuja un trozo falso y en la devolución llega la función
+    // de pedir módulos, que es la única forma de alcanzarla desde afuera.
     const clave = Object.keys(window).find((k) => /^webpackChunk/i.test(k));
     if (clave && Array.isArray(window[clave])) {
       let pedir = null;
       try {
         window[clave].push([['whatswv' + Date.now()], {}, (r) => { pedir = r; }]);
       } catch {
-        /* si el formato del trozo cambio, se sigue con las otras vias */
+        /* si el formato del trozo cambio, se sigue con lo que haya */
       }
+
       if (pedir?.m) {
         return Object.keys(pedir.m).map((id) => {
           try {
@@ -514,8 +557,8 @@
       }
     }
 
-    // El otro empaquetador que usa WhatsApp, con los modulos en un mapa.
-    const mapa = window.__debug?.modulesMap ?? window.__d?.modulesMap;
+    // La forma vieja del mapa, por si alguna version lo deja como objeto.
+    const mapa = window.__debug?.modulesMap;
     if (mapa && typeof mapa === 'object') {
       return Object.values(mapa).map((m) => {
         try {
@@ -607,8 +650,12 @@
 
   /** Dice si esta vía sirve, sin exportar nada. */
   function probarViaWhatsApp(avisar) {
-    const clave = Object.keys(window).find((k) => /^webpackChunk/i.test(k));
-    console.log('[whatswv] empaquetador:', clave ?? (window.__debug ? '__debug' : 'ninguno reconocido'));
+    const conNombre = typeof window.__debug === 'function' && typeof window.importNamespace === 'function';
+    const numerados = Object.keys(window).find((k) => /^webpackChunk/i.test(k));
+    console.log(
+      '[whatswv] cargador:',
+      conNombre ? 'con nombre (importNamespace)' : numerados ? `numerado (${numerados})` : 'ninguno reconocido',
+    );
 
     const modulos = modulosDeLaPagina().filter(Boolean);
     console.log('[whatswv] modulos alcanzados:', modulos.length);
