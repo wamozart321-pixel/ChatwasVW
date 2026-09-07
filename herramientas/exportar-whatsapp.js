@@ -411,6 +411,56 @@
   }
 
   /**
+   * Un informe de texto de todo lo que hay, para poder pegarlo en un mensaje.
+   *
+   * Van los NOMBRES de los campos, nunca el contenido: hace falta saber qué
+   * forma tienen los datos, no qué dicen. Así se puede pasar el informe sin
+   * mandar conversaciones de clientes a ningún lado.
+   *
+   * Existe porque copiar 142 líneas de la consola a mano no es razonable, y sin
+   * ese dato ajustar el script es adivinar.
+   */
+  function informe(tiendas) {
+    const lineas = [];
+    lineas.push(`WhatsWV — ${tiendas.length} tiendas en ${new Set(tiendas.map((t) => t.base)).size} bases`);
+    lineas.push(`navegador: ${navigator.userAgent}`);
+    lineas.push('');
+
+    const conDatos = tiendas.filter((t) => (t.filas ?? t.muestra) > 0);
+    conDatos.sort((a, b) => (b.filas ?? b.muestra) - (a.filas ?? a.muestra));
+
+    for (const t of conDatos) {
+      const campos = Object.keys(t.ejemplo?.fila ?? {});
+      const tipoClave = t.ejemplo ? typeof t.ejemplo.clave : '?';
+      lineas.push(
+        `${t.base} / ${t.tienda}  ${t.filas ?? '?'} filas  [${t.clase ?? '-'}]  clave:${tipoClave}`,
+      );
+      lineas.push(`    campos: ${campos.join(', ') || '(sin campos)'}`);
+
+      // Los campos anidados importan: si el identificador o la fecha viven un
+      // nivel adentro, desde afuera la fila parece no tener nada util.
+      for (const campo of campos) {
+        const v = t.ejemplo.fila[campo];
+
+        // Lo binario primero: un buffer tambien es un objeto, y listar sus
+        // claves da "{0, 1, 2, ...}", que ademas de inutil tapa el informe.
+        // Si la carga viene binaria es la respuesta a por que no sale texto.
+        if (ArrayBuffer.isView(v) || v instanceof ArrayBuffer || v instanceof Blob) {
+          lineas.push(`      ${campo}: binario (${v.byteLength ?? v.size ?? '?'} bytes)`);
+        } else if (v && typeof v === 'object' && !Array.isArray(v)) {
+          const dentro = Object.keys(v).slice(0, 12).join(', ');
+          if (dentro) lineas.push(`      ${campo}: {${dentro}}`);
+        }
+      }
+    }
+
+    const vacias = tiendas.length - conDatos.length;
+    if (vacias) lineas.push('', `(${vacias} tiendas vacias, omitidas)`);
+
+    return lineas.join(String.fromCharCode(10));
+  }
+
+  /**
    * Todo lo que hay, sin exportar nada.
    *
    * Cuenta las filas de verdad —no la muestra— y deja en la consola un registro
@@ -419,8 +469,6 @@
    * él sólo queda adivinar.
    */
   async function diagnostico(tiendas, avisar) {
-    console.log('[whatswv] contando…');
-
     for (const t of tiendas) {
       if (!t.db) continue;
       avisar(`contando ${t.base} / ${t.tienda}…`);
@@ -436,22 +484,42 @@
       })),
     );
 
-    console.log('[whatswv] un registro de cada tienda que tenga algo:');
     for (const t of tiendas) {
-      if (!t.ejemplo) continue;
-      console.log(
-        `--- ${t.base} / ${t.tienda} (${t.filas ?? 0} filas, ${t.clase ?? 'no reconocida'})`,
-      );
+      if (!t.ejemplo || !(t.filas ?? 0)) continue;
+      console.log(`--- ${t.base} / ${t.tienda} (${t.filas} filas, ${t.clase ?? 'no reconocida'})`);
       console.log('    clave:', t.ejemplo.clave);
-      console.log('    campos:', Object.keys(t.ejemplo.fila ?? {}).join(', '));
       console.log('    fila:', t.ejemplo.fila);
     }
 
     const total = tiendas.reduce((n, t) => n + (t.filas ?? 0), 0);
     avisar(
-      `${total.toLocaleString('es')} filas en ${tiendas.length} tiendas de ` +
-        `${new Set(tiendas.map((t) => t.base)).size} bases. El detalle quedo en la consola.`,
+      `${total.toLocaleString('es')} filas en ${tiendas.length} tiendas. ` +
+        'Usa "Copiar informe" para pasarlo.',
     );
+  }
+
+  async function copiarInforme(tiendas, avisar) {
+    // Se cuenta antes si no se ha contado: el informe sin numeros no dice cual
+    // es la tienda que importa.
+    if (tiendas.some((t) => t.db && t.filas === undefined)) {
+      for (const t of tiendas) {
+        if (!t.db) continue;
+        avisar(`contando ${t.base} / ${t.tienda}…`);
+        t.filas = await recorrer(t.db, t.tienda, () => {});
+      }
+    }
+
+    const texto = informe(tiendas);
+    console.log(texto);
+
+    try {
+      await navigator.clipboard.writeText(texto);
+      avisar('Informe copiado. Pegalo en el chat. (Solo nombres de campos.)');
+    } catch {
+      // Sin permiso de portapapeles queda el archivo, que sirve igual.
+      bajar('whatswv-informe.txt', texto, 'text/plain;charset=utf-8');
+      avisar('No pude usar el portapapeles: bajo whatswv-informe.txt');
+    }
   }
 
   // --- el panel ---------------------------------------------------------------
@@ -564,6 +632,7 @@
       av(`Listo: ${n} chats en whatswv-chats.json`);
     });
 
+    boton('Copiar informe', false, (av) => copiarInforme(tiendas, av));
     boton('Ver que hay', false, (av) => diagnostico(tiendas, av));
 
     const donde = (t) => (t ? `${t.base}/${t.tienda}` : 'NO ENCONTRADA');
