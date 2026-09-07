@@ -487,57 +487,101 @@
     return null;
   }
 
-  /** Las llaves de cifrado, por id. */
+  /** Las llaves de la caja, por id. */
   async function cargarLlaves(tiendas) {
     const mapa = new Map();
 
     for (const t of tiendas) {
-      // Las bases de llaves se llaman con "enc"; igual se acepta cualquier
-      // tienda "keys" por si en otra version esta en otro lado.
-      if (!t.db || (!/enc/i.test(t.base) && !/key/i.test(t.tienda))) continue;
+      if (!t.db) continue;
+
+      // Solo la caja del propio almacenamiento. `signal-storage` queda fuera a
+      // proposito: son las llaves del protocolo de mensajeria, cientos de
+      // registros con keyId 1, 2, 3… que pisan la llave real del mismo id. Esa
+      // colision era la razon de que no abriera nada.
+      if (/signal/i.test(t.base)) continue;
+      if (!/enc/i.test(t.base) && !/^keys?$/i.test(t.tienda)) continue;
 
       await recorrer(t.db, t.tienda, (fila) => {
         if (!fila || typeof fila !== 'object') return;
-        const llave = fila.key ?? fila.keyPair ?? fila.value;
-        if (llave === undefined) return;
-        mapa.set(String(fila.id ?? fila.keyId ?? mapa.size), llave);
+        const llave = fila.key ?? fila.value;
+        if (llave === undefined || llave === null) return;
+        mapa.set(String(fila.id ?? fila.keyId ?? mapa.size), { llave, de: `${t.base}/${t.tienda}` });
       });
     }
 
     return mapa;
   }
 
-  /**
-   * Descifra un `msgRowOpaqueData`.
-   *
-   * La llave suele venir ya como CryptoKey: entonces no se puede leer, pero SÍ
-   * se puede usar para descifrar, que es todo lo que hace falta. Si viene en
-   * bytes se importa.
-   */
-  async function abrirOpaco(op, llaves) {
-    const datos = aBytes(op?._data);
-    const iv = aBytes(op?.iv);
-    if (!datos || !iv) return null;
-
-    let llave = llaves.get(String(op._keyId));
-    // Con una sola llave en la base, el id puede no coincidir; se prueba igual.
-    if (llave === undefined && llaves.size === 1) llave = [...llaves.values()][0];
-    if (llave === undefined) return null;
-
-    if (!(llave instanceof CryptoKey)) {
-      const bytes = aBytes(llave);
-      if (!bytes) return null;
-      llave = await crypto.subtle.importKey('raw', bytes, 'AES-GCM', false, ['decrypt']);
-    }
-
-    const claro = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, llave, datos);
-    const texto = new TextDecoder().decode(claro);
+  /** Lo descifrado, como objeto si es JSON; si no, lo que se pueda ver. */
+  function interpretar(buffer) {
+    const bytes = new Uint8Array(buffer);
+    const texto = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
 
     try {
       return JSON.parse(texto);
     } catch {
-      return texto;
+      // No es JSON: probablemente protobuf. Se devuelve igual porque el texto
+      // de un mensaje aparece legible entre los bytes, y con eso ya se puede
+      // sacar algo aunque no se entienda el resto.
+      return { crudo: texto, bytes };
     }
+  }
+
+  /**
+   * Abre un `msgRowOpaqueData` probando lo que haya.
+   *
+   * Se prueban las llaves y los dos algoritmos en vez de asumir uno: es un
+   * espacio de cuatro o seis combinaciones, y dar por hecho AES-GCM cuando era
+   * otra cosa deja "0 de 3" sin decir por que. `registrar` cuenta que paso, que
+   * es lo unico que sirve cuando falla.
+   */
+  async function abrirOpaco(op, llaves, registrar = () => {}) {
+    const datos = aBytes(op?._data);
+    const iv = aBytes(op?.iv);
+
+    registrar(
+      `datos:${datos ? datos.length + 'B' : 'NO'} iv:${iv ? iv.length + 'B' : 'NO'} ` +
+        `scheme:${op?._scheme} keyId:${op?._keyId} campos:${Object.keys(op ?? {}).join('|')}`,
+    );
+
+    if (!datos || !iv) return null;
+
+    // La del keyId primero; despues las demas, por si el id no corresponde.
+    const orden = [...llaves.entries()].sort(([a], [b]) =>
+      a === String(op._keyId) ? -1 : b === String(op._keyId) ? 1 : 0,
+    );
+
+    let ultimo = null;
+
+    for (const [id, { llave: bruta, de }] of orden) {
+      for (const algo of ['AES-GCM', 'AES-CBC']) {
+        try {
+          let llave = bruta;
+
+          if (llave instanceof CryptoKey) {
+            // Una CryptoKey solo sirve para su propio algoritmo.
+            if (llave.algorithm?.name !== algo) continue;
+            if (!llave.usages?.includes('decrypt')) {
+              registrar(`llave ${id} (${de}) no permite descifrar: ${llave.usages}`);
+              continue;
+            }
+          } else {
+            const bytes = aBytes(bruta);
+            if (!bytes) continue;
+            llave = await crypto.subtle.importKey('raw', bytes, algo, false, ['decrypt']);
+          }
+
+          const claro = await crypto.subtle.decrypt({ name: algo, iv }, llave, datos);
+          registrar(`abierto con la llave ${id} (${de}) y ${algo}`);
+          return interpretar(claro);
+        } catch (e) {
+          ultimo = `${algo} con llave ${id}: ${e?.name ?? e}`;
+        }
+      }
+    }
+
+    registrar(`ninguna combinacion sirvio. Ultimo intento: ${ultimo}`);
+    return null;
   }
 
   const CAMPOS_TEXTO = ['body', 'caption', 'text', 'conversation'];
@@ -565,13 +609,28 @@
     return '';
   }
 
-  /** Descifra unos pocos y cuenta qué salió, sin exportar nada. */
+  /**
+   * Descifra unos pocos y cuenta paso por paso qué pasó, sin exportar nada.
+   *
+   * Deja todo en la consola: qué llaves hay y de qué tipo, qué trae cada
+   * `msgRowOpaqueData`, y con qué combinación se abrió o por qué no. "0 de 3" a
+   * secas no dice en qué paso se rompió, y sin eso el arreglo es a ciegas.
+   */
   async function probarDescifrado(fuentes, avisar) {
     const llaves = await cargarLlaves(fuentes.tiendas);
-    console.log('[whatswv] llaves encontradas:', llaves.size, [...llaves.keys()]);
+
+    console.log('[whatswv] llaves encontradas:', llaves.size);
+    for (const [id, { llave, de }] of llaves) {
+      const tipo = llave?.constructor?.name ?? typeof llave;
+      const extra =
+        llave instanceof CryptoKey
+          ? `algoritmo:${llave.algorithm?.name} largo:${llave.algorithm?.length} usos:${llave.usages}`
+          : `claves:${Object.keys(llave ?? {}).slice(0, 8).join('|')}`;
+      console.log(`  llave ${id} de ${de} — ${tipo} — ${extra}`);
+    }
 
     if (llaves.size === 0) {
-      avisar('No encontre ninguna llave de cifrado. El detalle quedo en la consola.');
+      avisar('No encontre ninguna llave. El detalle quedo en la consola.');
       return;
     }
 
@@ -582,30 +641,38 @@
         t.db,
         t.tienda,
         (fila) => {
-          if (fila?.msgRowOpaqueData && muestras.length < 3) muestras.push(fila.msgRowOpaqueData);
+          if (muestras.length >= 3) return;
+          if (fila?.msgRowOpaqueData) muestras.push(fila.msgRowOpaqueData);
         },
-        200,
+        300,
       );
     }
 
     if (muestras.length === 0) {
-      avisar('Ningun mensaje trae msgRowOpaqueData. El detalle quedo en la consola.');
+      avisar('Ningun mensaje trae msgRowOpaqueData. Pulsa "Copiar informe" y pasamelo.');
       return;
     }
 
     let bien = 0;
-    for (const op of muestras) {
-      try {
-        const claro = await abrirOpaco(op, llaves);
-        console.log('[whatswv] descifrado:', claro);
-        console.log('[whatswv] texto encontrado:', JSON.stringify(buscarTexto(claro)).slice(0, 120));
-        if (buscarTexto(claro)) bien++;
-      } catch (e) {
-        console.error('[whatswv] no se pudo descifrar:', e, 'esquema:', op._scheme, 'keyId:', op._keyId);
+
+    for (const [i, op] of muestras.entries()) {
+      console.log(`[whatswv] --- muestra ${i + 1}`);
+      const claro = await abrirOpaco(op, llaves, (m) => console.log('    ' + m));
+
+      if (!claro) continue;
+
+      const texto = buscarTexto(claro);
+      if (texto) {
+        bien++;
+        console.log(`    texto: ${JSON.stringify(texto.slice(0, 80))}`);
+      } else {
+        // Se abrio pero no se reconoce: ver los primeros bytes dice si es
+        // protobuf, y donde queda el texto adentro.
+        console.log('    se abrio pero no encontre texto. Contenido:', claro);
       }
     }
 
-    avisar(`Descifrados ${bien} de ${muestras.length}. Mira la consola.`);
+    avisar(`Descifrados ${bien} de ${muestras.length}. El detalle quedo en la consola.`);
   }
 
   /**
