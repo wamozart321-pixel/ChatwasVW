@@ -21,10 +21,13 @@ No hay que volver a cargarla: queda instalada y el panel sale solo cada vez.
 ## Sacar los archivos
 
 - **Contactos (CSV)** → `whatswv-contactos.csv`, es cosa de segundos.
-- **Chats (JSON)** → `whatswv-chats.json`. **Tarda.** Le pide la conversación
-  entera al celular, uno por uno; con cien chats son varios minutos. El panel va
-  diciendo `pidiendo historial 34 de 103…`. Tener el celular encendido y con
-  internet.
+- **Chats (JSON)** → `whatswv-chats.json` y `whatswv-chats.csv`, el mismo
+  contenido. El importador lee el JSON; el CSV es para abrirlo y revisar qué
+  trajo, una fila por mensaje. **Tarda:** le pide la conversación entera al
+  celular, uno por uno; con cien chats son varios minutos. El panel va diciendo
+  `pidiendo historial 34 de 103…`. Tener el celular encendido y con internet.
+  Si sale `0 chats`, el panel dice por qué: cuántos chats vio, a cuántos les
+  sacó teléfono y un ejemplo de los que no.
 
 ## Meterlos a la bandeja
 

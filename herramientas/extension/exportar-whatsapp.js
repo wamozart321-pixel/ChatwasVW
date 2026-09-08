@@ -395,10 +395,10 @@
      * tiene lo que tiene la otra. Los repetidos se quitan mas abajo.
      */
     // Lo mejor primero: WA-JS le pide el historial al celular.
-    const deWaJs = await mensajesDeWaJs(avisar);
-    if (deWaJs.length) {
-      avisar(`${deWaJs.length.toLocaleString('es')} mensajes desde WA-JS`);
-      crudos.push(...deWaJs);
+    const waJsDio = await mensajesDeWaJs(avisar);
+    if (waJsDio.mensajes.length) {
+      avisar(`${waJsDio.mensajes.length.toLocaleString('es')} mensajes desde WA-JS`);
+      crudos.push(...waJsDio.mensajes);
       for (const [telefono, nombre] of nombresDeWaJs()) {
         if (!nombres.has(telefono)) nombres.set(telefono, nombre);
       }
@@ -487,6 +487,38 @@
       'application/json',
     );
 
+    /*
+     * El mismo contenido en CSV, para poder mirarlo.
+     *
+     * El importador lee el JSON, que no tiene ambiguedades; esto es para abrirlo
+     * y revisar que trajo antes de meterlo a la bandeja. Una fila por mensaje.
+     */
+    const filas = ['telefono,nombre,cuando,quien,texto'];
+    for (const chat of salida) {
+      for (const m of chat.mensajes) {
+        filas.push(
+          [
+            celdaTelefono(chat.telefono),
+            celda(chat.nombre ?? ''),
+            celda(m.cuando),
+            m.mio ? 'nosotros' : 'cliente',
+            celda(m.texto),
+          ].join(','),
+        );
+      }
+    }
+    const SALTO = String.fromCharCode(10);
+    const MARCA_EXCEL = String.fromCharCode(0xfeff);
+    bajar(
+      'whatswv-chats.csv',
+      MARCA_EXCEL + filas.join(SALTO) + SALTO,
+      'text/csv;charset=utf-8',
+    );
+
+    // Si no salio nada, el porque va en el panel: sin eso "0 chats" no dice si
+    // fallo la busqueda, los telefonos o el celular.
+    if (salida.length === 0) avisar(`0 chats. ${waJsDio.nota}`);
+
     return salida.length;
   }
 
@@ -531,31 +563,89 @@
     return wpp && typeof wpp === 'object' ? wpp : null;
   }
 
+  /** Un teléfono suelto, sin jid: "+57 300 123 4567" o "573001234567". */
+  function telefonoSuelto(valor) {
+    const digitos = String(valor ?? '').replace(/\D/g, '');
+    return digitos.length >= 8 ? digitos : null;
+  }
+
+  /**
+   * El teléfono de un chat, buscándolo por donde haga falta.
+   *
+   * No alcanza con el identificador del chat. WhatsApp está pasando los chats a
+   * `@lid`, un identificador que TAPA el número a propósito: de ahí no sale
+   * ningún teléfono. El número sigue estando, pero en el contacto.
+   *
+   * Ésta era una de las razones de que salieran cero chats teniendo ciento tres
+   * a la vista.
+   */
+  function telefonoDelChat(chat, wpp) {
+    const directo = telefonoDe(comoTexto(chat?.id));
+    if (directo) return directo;
+
+    const contactos = [
+      chat?.contact,
+      chat?.contact?.contact,
+      wpp?.whatsapp?.ContactStore?.get?.(chat?.id),
+    ];
+
+    for (const c of contactos) {
+      if (!c) continue;
+      const porJid = telefonoDe(comoTexto(c.id));
+      if (porJid) return porJid;
+
+      const porNumero = telefonoSuelto(comoTexto(c.phoneNumber) || c.phoneNumber);
+      if (porNumero) return porNumero;
+    }
+
+    return null;
+  }
+
   /**
    * Los mensajes por WA-JS, pidiéndole a cada chat su historial.
    *
    * Uno por uno y no todo de golpe: cada `getMessages` es una consulta al
    * celular y lanzarlas todas juntas hace que WhatsApp corte. Por eso también
    * va avisando: con cien chats esto tarda, y sin avance parece colgado.
+   *
+   * Se cuenta qué pasó con cada chat. Un "0 mensajes" a secas no distingue
+   * entre no haber encontrado los chats, no poder sacarles el teléfono, o que
+   * el celular no contestara — y son tres arreglos distintos.
    */
   async function mensajesDeWaJs(avisar) {
     const wpp = waJs();
-    if (!wpp?.chat?.list) return [];
+    if (!wpp?.chat?.list) return { mensajes: [], nota: 'WA-JS no esta en la pagina' };
 
-    let chats;
+    let chats = [];
     try {
-      chats = await wpp.chat.list({ onlyUsers: true });
+      // Sin `onlyUsers`: ese filtro mira `isUser`, que con los identificadores
+      // nuevos viene en falso y dejaba la lista vacia. Los grupos se caen solos
+      // mas abajo, al no poder sacarles telefono.
+      chats = await wpp.chat.list();
     } catch (e) {
       console.error('[whatswv] WPP.chat.list fallo:', e);
-      return [];
+    }
+
+    // Si `list()` no devuelve nada, se va derecho a la coleccion.
+    if (chats.length === 0) {
+      chats = modelosDe(wpp.whatsapp?.ChatStore);
+      console.log('[whatswv] chat.list vacio; uso ChatStore:', chats.length);
     }
 
     const salida = [];
+    let conTelefono = 0;
+    let fallaron = 0;
+    let ejemploSinTelefono = null;
 
     for (const [i, chat] of chats.entries()) {
-      const telefono = telefonoDe(comoTexto(chat?.id));
-      if (!telefono) continue;
+      const telefono = telefonoDelChat(chat, wpp);
 
+      if (!telefono) {
+        if (!ejemploSinTelefono) ejemploSinTelefono = comoTexto(chat?.id) || '(sin id)';
+        continue;
+      }
+
+      conTelefono++;
       avisar(`pidiendo historial ${i + 1} de ${chats.length} (+${telefono})…`);
 
       let mensajes = [];
@@ -564,22 +654,33 @@
         // baja el historial del celular, no solo lo que ya estaba cargado.
         mensajes = await wpp.chat.getMessages(chat.id, { count: -1 });
       } catch (e) {
-        console.warn(`[whatswv] no se pudo pedir el historial de ${telefono}:`, e?.message ?? e);
+        fallaron++;
+        console.warn(`[whatswv] historial de ${telefono}:`, e?.message ?? e);
         continue;
       }
 
       for (const m of mensajes) {
-        const de = deQuienEs(m);
         const segundos = cuandoDe(m);
         const texto = textoDe(m);
-        if (!de || !segundos || !texto) continue;
+        if (!segundos || !texto) continue;
 
-        salida.push({ telefono, mio: de.mio, segundos, texto, opaco: null });
+        // El chat ya dice de quien es la conversacion; del mensaje solo hace
+        // falta si salio de aca. Asi tambien sirven los mensajes cuyo
+        // identificador viene con @lid.
+        const de = deQuienEs(m);
+        const mio = de ? de.mio : m?.id?.fromMe === true;
+
+        salida.push({ telefono, mio, segundos, texto, opaco: null });
       }
     }
 
-    console.log(`[whatswv] WA-JS: ${salida.length} mensajes de ${chats.length} chats`);
-    return salida;
+    const nota =
+      `${chats.length} chats, ${conTelefono} con telefono` +
+      (fallaron ? `, ${fallaron} sin respuesta del celular` : '') +
+      (ejemploSinTelefono ? ` (ej. sin telefono: ${ejemploSinTelefono})` : '');
+
+    console.log(`[whatswv] WA-JS: ${salida.length} mensajes. ${nota}`);
+    return { mensajes: salida, nota };
   }
 
   /** Los nombres que tenga WA-JS, que son los mismos que se ven en pantalla. */
