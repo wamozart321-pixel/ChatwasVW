@@ -30,7 +30,15 @@ Para tocar el servidor y no la base de desarrollo, agregar `--produccion`.
 
 ## Lo que hay que saber antes
 
-- **El texto de los mensajes se saca por dos vías, y se suman.** WhatsApp
+- **Para los chats hace falta que WA-JS esté en la página.** Lo deja cualquier
+  extensión de estas que esté instalada — con tenerla instalada basta, no hay
+  que usarla ni pagarla; WA-JS es una librería libre. La razón es que WhatsApp
+  ya no deja `require` ni `__d` como variables globales: WA-JS los atrapa
+  poniendo una trampa *al arrancar la página*, y un script pegado en la consola
+  llega tarde. No es algo que se arregle con más código de nuestro lado.
+  A cambio esa vía es la mejor: le pide el historial **al celular**, no se
+  conforma con lo que haya en caché.
+- **El texto de los mensajes se saca por tres vías, y se suman.** WhatsApp
   guarda su copia en disco cifrada, así que de ahí hay que abrirla con la llave
   que está en la misma máquina; y además le pide los mensajes al código de la
   propia página, que ya los tiene en claro para dibujarlos. Ninguna de las dos

@@ -388,6 +388,17 @@
      * esta sesion, y en disco esta todo lo sincronizado. Ninguna de las dos
      * tiene lo que tiene la otra. Los repetidos se quitan mas abajo.
      */
+    // Lo mejor primero: WA-JS le pide el historial al celular.
+    const deWaJs = await mensajesDeWaJs(avisar);
+    if (deWaJs.length) {
+      avisar(`${deWaJs.length.toLocaleString('es')} mensajes desde WA-JS`);
+      crudos.push(...deWaJs);
+      for (const [telefono, nombre] of nombresDeWaJs()) {
+        if (!nombres.has(telefono)) nombres.set(telefono, nombre);
+      }
+    }
+
+    // Y lo que haya en memoria por el enganche propio, si es que alcanzo.
     const enClaro = mensajesDeWhatsApp();
     if (enClaro.length) {
       avisar(`${enClaro.length.toLocaleString('es')} mensajes en claro desde WhatsApp`);
@@ -490,6 +501,95 @@
    * número de módulo dura semanas; que la colección de mensajes contenga
    * mensajes dura mientras WhatsApp sea WhatsApp.
    */
+
+  /*
+   * La vía buena: WA-JS, si está en la página.
+   *
+   * `window.WPP` es WA-JS (WPPConnect), una librería libre que habla con los
+   * módulos internos de WhatsApp. La pone cualquier extensión de estas que esté
+   * instalada, porque se inyecta al ARRANCAR la página.
+   *
+   * Y ahí está el porqué de que enganchar los módulos a mano no funcione desde
+   * la consola: WhatsApp ya no deja `require` ni `__d` como variables globales.
+   * WA-JS los atrapa poniendo una trampa ANTES de que la página los cree y los
+   * borre. Un script pegado en la consola llega tarde; a esa altura ya no hay
+   * nada que enganchar. No es algo que se arregle con más código.
+   *
+   * A cambio, esta vía es la mejor de todas: `getMessages` con `count: -1` no
+   * devuelve lo que haya en caché, sino que le PIDE el historial al celular.
+   */
+
+  /** WA-JS, si alguna extensión ya lo dejó en la página. */
+  function waJs() {
+    const wpp = window.WPP ?? window.wpp;
+    return wpp && typeof wpp === 'object' ? wpp : null;
+  }
+
+  /**
+   * Los mensajes por WA-JS, pidiéndole a cada chat su historial.
+   *
+   * Uno por uno y no todo de golpe: cada `getMessages` es una consulta al
+   * celular y lanzarlas todas juntas hace que WhatsApp corte. Por eso también
+   * va avisando: con cien chats esto tarda, y sin avance parece colgado.
+   */
+  async function mensajesDeWaJs(avisar) {
+    const wpp = waJs();
+    if (!wpp?.chat?.list) return [];
+
+    let chats;
+    try {
+      chats = await wpp.chat.list({ onlyUsers: true });
+    } catch (e) {
+      console.error('[whatswv] WPP.chat.list fallo:', e);
+      return [];
+    }
+
+    const salida = [];
+
+    for (const [i, chat] of chats.entries()) {
+      const telefono = telefonoDe(comoTexto(chat?.id));
+      if (!telefono) continue;
+
+      avisar(`pidiendo historial ${i + 1} de ${chats.length} (+${telefono})…`);
+
+      let mensajes = [];
+      try {
+        // -1 es "todo": con multidispositivo WA-JS lo convierte en sin limite y
+        // baja el historial del celular, no solo lo que ya estaba cargado.
+        mensajes = await wpp.chat.getMessages(chat.id, { count: -1 });
+      } catch (e) {
+        console.warn(`[whatswv] no se pudo pedir el historial de ${telefono}:`, e?.message ?? e);
+        continue;
+      }
+
+      for (const m of mensajes) {
+        const de = deQuienEs(m);
+        const segundos = cuandoDe(m);
+        const texto = textoDe(m);
+        if (!de || !segundos || !texto) continue;
+
+        salida.push({ telefono, mio: de.mio, segundos, texto, opaco: null });
+      }
+    }
+
+    console.log(`[whatswv] WA-JS: ${salida.length} mensajes de ${chats.length} chats`);
+    return salida;
+  }
+
+  /** Los nombres que tenga WA-JS, que son los mismos que se ven en pantalla. */
+  function nombresDeWaJs() {
+    const wpp = waJs();
+    const mapa = new Map();
+    const tienda = wpp?.whatsapp?.ContactStore ?? wpp?.whatsapp?.ChatStore;
+
+    for (const c of modelosDe(tienda)) {
+      const telefono = telefonoDe(comoTexto(c?.id));
+      const nombre = nombreDe(c);
+      if (telefono && nombre && !mapa.has(telefono)) mapa.set(telefono, nombre);
+    }
+
+    return mapa;
+  }
 
   /**
    * Los módulos de la página, sea cual sea el cargador.
@@ -648,20 +748,34 @@
     return salida;
   }
 
-  /** Dice si esta vía sirve, sin exportar nada. */
+  /**
+   * Dice si se puede llegar a los mensajes, y por dónde.
+   *
+   * Enumera los globales porque son la explicación: si no está ninguno, no es
+   * que falte código, es que WhatsApp ya los borró y desde la consola se llega
+   * tarde. Eso hay que verlo, no deducirlo.
+   */
   function probarViaWhatsApp(avisar) {
-    const conNombre = typeof window.__debug === 'function' && typeof window.importNamespace === 'function';
+    const estado = ['WPP', 'require', '__d', '__debug', 'importNamespace', 'ErrorGuard']
+      .map((k) => `${k}:${typeof window[k]}`)
+      .join('  ');
     const numerados = Object.keys(window).find((k) => /^webpackChunk/i.test(k));
-    console.log(
-      '[whatswv] cargador:',
-      conNombre ? 'con nombre (importNamespace)' : numerados ? `numerado (${numerados})` : 'ninguno reconocido',
-    );
+    console.log('[whatswv] globales:', estado, '| trozos:', numerados ?? 'no');
+
+    const wpp = waJs();
+    if (wpp?.chat?.list) {
+      const chats = modelosDe(wpp.whatsapp?.ChatStore).length;
+      avisar(`WA-JS presente (${chats} chats). Usa "Chats (JSON)": pedira el historial al celular.`);
+      return;
+    }
 
     const modulos = modulosDeLaPagina().filter(Boolean);
     console.log('[whatswv] modulos alcanzados:', modulos.length);
 
     if (modulos.length === 0) {
-      avisar('No pude alcanzar el codigo de WhatsApp. Mira la consola.');
+      avisar(
+        'No hay WA-JS ni se alcanza el codigo de WhatsApp: desde la consola se llega tarde. Mira la consola.',
+      );
       return;
     }
 
