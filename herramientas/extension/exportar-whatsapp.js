@@ -1,9 +1,9 @@
 /**
- * Saca los contactos y los chats de WhatsApp Web, sin extensión y sin pagar.
+ * Saca los contactos y el historial de WhatsApp Web para pasarlos a la bandeja.
  *
- * Cómo se usa: abrir web.whatsapp.com con la sesión iniciada, esperar a que
- * cargue la lista de chats, abrir la consola del navegador (F12 -> Console),
- * pegar TODO este archivo y dar Enter. Aparece un panel arriba a la derecha.
+ * Se instala como extensión: ver `herramientas/LEEME.md`. También se puede
+ * pegar en la consola del navegador, pero así sólo salen los contactos —abajo
+ * está el porqué—.
  *
  * Lo que baja se le pasa al importador:
  *
@@ -12,29 +12,35 @@
  *
  * ---
  *
- * De dónde salen los datos.
+ * Por qué esto es una extensión y no un script pegado en la consola.
  *
- * WhatsApp Web guarda su copia local en IndexedDB, la base de datos del propio
- * navegador. Se lee de ahí y no de los módulos internos de la página, que es lo
- * que hacen las extensiones: esos módulos no tienen nombre estable —son código
- * empaquetado y minificado— y cada despliegue de WhatsApp los renumera, así que
- * una herramienta hecha así se rompe sola cada pocas semanas.
+ * El texto de los mensajes no está a la vista en ningún lado. En disco,
+ * WhatsApp lo guarda cifrado dentro de `msgRowOpaqueData`. En memoria sí está
+ * en claro, pero para llegar ahí hay que hablarle a los módulos internos de la
+ * página, y WhatsApp ya no deja `require` ni `__d` como variables globales: los
+ * define y los borra durante el arranque.
  *
- * Pero tampoco alcanza con confiar en los nombres de la base. WhatsApp reparte
- * sus datos en VARIAS bases y les cambia el nombre entre versiones: los
- * contactos pueden estar en una y los mensajes en otra. Por eso se recorren
- * todas y cada tienda se clasifica MIRANDO UN REGISTRO, no por cómo se llama.
- * Un mensaje se reconoce porque su identificador empieza por "true_" o "false_"
- * y trae fecha; un contacto, porque su identificador es un jid y trae nombre.
+ * O sea que hay que estar ANTES. Una extensión puede correr en `document_start`
+ * y poner una trampa antes de que WhatsApp cree esas variables; un script
+ * pegado en la consola llega cuando ya no queda nada que enganchar. Eso no se
+ * arregla con más código, es cuestión de cuándo se corre.
  *
- * Esto NO habla con los servidores de WhatsApp ni manda nada a ningún lado: lee
- * lo que ya está en este computador y arma un archivo. Son los datos del propio
- * negocio.
+ * De eso se encarga WA-JS (`vendor/`), que es la librería que hace la parte
+ * difícil y la que usan por dentro las extensiones que cobran por esto.
  *
- * Lo que sí tiene límite: WhatsApp Web no guarda todo el historial, guarda lo
- * que fue sincronizando con el celular. Los contactos salen completos; de los
- * mensajes sale lo que esté cargado. Para que baje más, hay que abrir el chat y
- * subir un rato antes de exportar.
+ * Y ya estando adentro, se puede pedir más que el historial en pantalla:
+ * `getMessages` con `count: -1` le PIDE la conversación entera al celular.
+ *
+ * ---
+ *
+ * Los contactos salen por otro lado y por eso funcionan igual desde la consola:
+ * están sin cifrar en IndexedDB, la base del propio navegador. Se recorren
+ * todas sus tiendas y cada una se clasifica MIRANDO UN REGISTRO, no por cómo se
+ * llama: WhatsApp reparte sus datos en catorce bases y les cambia el nombre
+ * entre versiones.
+ *
+ * Esto NO manda nada a ningún lado: lee lo que ya está en este computador, le
+ * pregunta al celular por el historial del propio negocio, y arma un archivo.
  */
 (() => {
   const ID_PANEL = 'whatswv-exportador';
@@ -1233,8 +1239,66 @@
 
   // --- arranque ---------------------------------------------------------------
 
+  /**
+   * Espera a que exista la página.
+   *
+   * Por la extensión esto corre en `document_start`, o sea antes de que haya
+   * `body`, y el panel no se podría colgar de ningún lado.
+   */
+  function documentoListo() {
+    if (document.body) return Promise.resolve();
+    return new Promise((ok) => {
+      document.addEventListener('DOMContentLoaded', () => ok(), { once: true });
+    });
+  }
+
+  /**
+   * Espera a que WA-JS termine de arrancar.
+   *
+   * `onFullReady` es lo que dice que WhatsApp ya cargó del todo y se le puede
+   * preguntar por los chats. Se le pone un tope: si algo sale mal es mejor un
+   * panel que avisa que uno que se queda esperando para siempre.
+   */
+  function waJsListo(avisar, tope = 120_000) {
+    return new Promise((ok) => {
+      const desde = Date.now();
+
+      const mirar = () => {
+        const wpp = waJs();
+
+        if (wpp?.isFullReady || (wpp?.chat?.list && wpp?.isReady)) return ok(true);
+        if (Date.now() - desde > tope) return ok(false);
+
+        const segundos = Math.round((Date.now() - desde) / 1000);
+        avisar(`esperando a que WhatsApp cargue… (${segundos}s)`);
+        setTimeout(mirar, 500);
+      };
+
+      const wpp = waJs();
+      if (wpp?.webpack?.onFullReady) {
+        try {
+          wpp.webpack.onFullReady(() => ok(true));
+        } catch {
+          /* si no esta, queda el sondeo */
+        }
+      }
+
+      mirar();
+    });
+  }
+
   (async () => {
+    await documentoListo();
+
     const { avisar, boton } = panel();
+
+    // Por la extension hay que esperar; pegado en la consola ya esta todo.
+    if (window.__WHATSWV_EXTENSION) {
+      const listo = await waJsListo(avisar);
+      if (!listo) {
+        avisar('WhatsApp no termino de cargar. Recarga la pagina y espera a ver los chats.');
+      }
+    }
 
     const tiendas = await inventario();
 
@@ -1268,7 +1332,12 @@
     boton('Copiar informe', false, (av) => copiarInforme(tiendas, av));
     boton('Ver que hay', false, (av) => diagnostico(tiendas, av));
 
-    const donde = (t) => (t ? `${t.base}/${t.tienda}` : 'NO ENCONTRADA');
-    avisar(`Contactos: ${donde(fuentes.contacto)}. Mensajes: ${donde(fuentes.mensaje)}.`);
+    const wpp = waJs();
+    if (wpp?.chat?.list) {
+      avisar(`Listo. WA-JS ve ${modelosDe(wpp.whatsapp?.ChatStore).length} chats.`);
+    } else {
+      const donde = (t) => (t ? `${t.base}/${t.tienda}` : 'NO ENCONTRADA');
+      avisar(`Sin WA-JS. Contactos: ${donde(fuentes.contacto)}. Mensajes: ${donde(fuentes.mensaje)}.`);
+    }
   })();
 })();

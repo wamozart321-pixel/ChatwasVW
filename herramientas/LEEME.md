@@ -1,65 +1,75 @@
 # Exportar los contactos y los chats de WhatsApp
 
 Para migrar al número de la empresa sin perder quién es quién. Hace lo mismo que
-las extensiones que cobran, leyendo lo que ya está en el computador.
+las extensiones que cobran, y por el mismo camino.
 
-## Cómo se usa
+## Instalar
 
-1. Abrir **web.whatsapp.com** en Chrome y esperar a que carguen los chats.
-2. Abrir la consola: **F12** → pestaña **Console**.
-3. Abrir `exportar-whatsapp.js`, copiar **todo**, pegarlo ahí y dar Enter.
-4. Aparece un panel arriba a la derecha.
+Es una extensión sin empaquetar. En **Opera**: `opera://extensions`. En
+**Chrome**: `chrome://extensions`.
 
-Para los contactos, **Contactos (CSV)** y listo. Para los chats conviene pulsar
-antes **Probar vía WhatsApp**, que en un segundo dice si esa vía sirve, en vez
-de averiguarlo después de recorrer miles de mensajes.
+1. Activar **Modo de desarrollador** (arriba a la derecha).
+2. **Cargar extensión sin empaquetar** y elegir la carpeta
+   `herramientas/extension`.
+3. Abrir **web.whatsapp.com** y esperar a que carguen los chats.
 
-Bajan `whatswv-contactos.csv` y `whatswv-chats.json` a la carpeta de descargas.
+Aparece un panel verde arriba a la derecha. Mientras WhatsApp arranca dice
+`esperando a que WhatsApp cargue…`; cuando termina, `Listo. WA-JS ve N chats.`
 
-## Cómo entran a la bandeja
+No hay que volver a cargarla: queda instalada y el panel sale solo cada vez.
+
+## Sacar los archivos
+
+- **Contactos (CSV)** → `whatswv-contactos.csv`, es cosa de segundos.
+- **Chats (JSON)** → `whatswv-chats.json`. **Tarda.** Le pide la conversación
+  entera al celular, uno por uno; con cien chats son varios minutos. El panel va
+  diciendo `pidiendo historial 34 de 103…`. Tener el celular encendido y con
+  internet.
+
+## Meterlos a la bandeja
 
 ```
 npm run importar -- contactos ~/Downloads/whatswv-contactos.csv
 npm run importar -- mensajes  ~/Downloads/whatswv-chats.json
 ```
 
-Sin `--de-verdad` sólo dicen qué harían. Revisar primero y después repetir el
-comando con `--de-verdad`. Correrlo dos veces no duplica nada.
+Sin `--de-verdad` sólo dicen qué harían. Revisar y repetir el comando con
+`--de-verdad`. Correrlo dos veces no duplica nada.
 
 Para tocar el servidor y no la base de desarrollo, agregar `--produccion`.
 
-## Lo que hay que saber antes
+## Por qué es una extensión y no un script para pegar en la consola
 
-- **Para los chats hace falta que WA-JS esté en la página.** Lo deja cualquier
-  extensión de estas que esté instalada — con tenerla instalada basta, no hay
-  que usarla ni pagarla; WA-JS es una librería libre. La razón es que WhatsApp
-  ya no deja `require` ni `__d` como variables globales: WA-JS los atrapa
-  poniendo una trampa *al arrancar la página*, y un script pegado en la consola
-  llega tarde. No es algo que se arregle con más código de nuestro lado.
-  A cambio esa vía es la mejor: le pide el historial **al celular**, no se
-  conforma con lo que haya en caché.
-- **El texto de los mensajes se saca por tres vías, y se suman.** WhatsApp
-  guarda su copia en disco cifrada, así que de ahí hay que abrirla con la llave
-  que está en la misma máquina; y además le pide los mensajes al código de la
-  propia página, que ya los tiene en claro para dibujarlos. Ninguna de las dos
-  tiene todo lo que tiene la otra. Lo repetido se descarta solo.
-- **Los contactos salen completos. Los mensajes, no.** WhatsApp Web sólo guarda
-  lo que fue sincronizando con el celular; los chats viejos que nadie ha abierto
-  no están. Para que baje más de un cliente concreto: abrir ese chat, subir un
-  rato hasta donde interese, y recién ahí exportar.
+El texto de los mensajes no está a la vista. En disco WhatsApp lo guarda
+cifrado; en memoria sí está en claro, pero para llegar ahí hay que hablarle a
+sus módulos internos, y WhatsApp ya no deja `require` ni `__d` como variables
+globales: las crea y las borra durante el arranque.
+
+Hay que estar **antes**. Una extensión corre en `document_start` y las atrapa;
+un script pegado en la consola llega cuando ya no queda nada que enganchar. No
+es cuestión de más código, es cuestión de cuándo se corre.
+
+Pegar `extension/exportar-whatsapp.js` en la consola sigue sirviendo **para los
+contactos**, que están sin cifrar en la base local del navegador.
+
+## Lo que hay que saber
+
 - **Es sólo texto.** Las fotos y los audios no viajan; de una foto con pie de
   texto queda el texto.
 - **Lo importado entra como historial, no como conversación viva.** Queda
   resuelto y con la ventana cerrada, porque la ventana de 24 h la abre un
   mensaje real del cliente y no una fila que pongamos nosotros. En cuanto el
   cliente escriba, la conversación se abre normal.
-- **No manda nada a ningún lado.** Lee la base local del navegador y arma un
-  archivo. No habla con los servidores de WhatsApp ni con los nuestros.
-- **No abras el CSV en Excel para revisarlo.** Un telefono de doce digitos lo
-  lee como cantidad y lo muestra `5,73002E+11`; si guardas ahi, los digitos del
-  final se pierden de verdad. El archivo ya sale escrito para que Excel lo
-  respete, pero lo mas seguro es pasarlo directo al importador, que de todos
-  modos te dice que va a agregar antes de tocar nada.
-- Si el panel dice **NO ENCONTRADA** al lado de Contactos o Mensajes, el boton
-  **Ver qué hay** imprime en la consola cada base con cada tienda y cuantas
-  filas tiene. Con eso se ajusta el script; sin eso es adivinar.
+- **No manda nada a ningún lado.** Lee la base local, le pregunta al celular por
+  el historial del propio negocio, y arma un archivo.
+- **No abrir el CSV en Excel para revisarlo.** Un teléfono de doce dígitos lo lee
+  como cantidad y muestra `5,73002E+11`; si se guarda ahí, los dígitos del final
+  se pierden de verdad. El archivo ya sale escrito para que Excel lo respete,
+  pero lo seguro es pasarlo directo al importador.
+- Si algo no cuadra, **Copiar informe** deja en el portapapeles qué encontró
+  —nombres de campos y cantidades, nunca contenido de mensajes—.
+
+## Terceros
+
+`extension/vendor/` trae **WA-JS** de WPPConnect (Apache-2.0), que es la
+librería que hace la parte difícil. Su licencia está al lado, sin modificar.
