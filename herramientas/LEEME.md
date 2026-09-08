@@ -38,11 +38,23 @@ Después:
   contenido. El importador lee el JSON; el CSV es para abrirlo y revisar qué
   trajo, una fila por mensaje. Tener el celular encendido y con internet: el
   panel va diciendo `pidiendo historial 34 de 103…`.
-- **`whatswv-omitidos.csv`** — los chats que NO entraron y por qué. Salen menos
-  chats de los que se ven en pantalla, y es normal: los grupos, los canales, los
-  estados y las conversaciones de puras fotos no tienen nada que importar. Pero
-  normal no es lo mismo que comprobado: al migrar el negocio hay que abrir esta
-  lista y confirmar que ningún cliente se quedó por fuera.
+
+Al final de ese mismo CSV, después de un renglón en blanco, va la sección
+**OMITIDOS**: los chats que no entraron y por qué.
+
+```
+OMITIDOS: 45 chats que no entraron
+identificador,nombre,motivo
+120363012345@g.us,,"no tiene telefono (grupo, canal o @lid)"
+573001112222,Solo Fotos,"12 mensajes, ninguno de texto en el rango pedido"
+573004445555,No Contesta,el celular no contesto: timeout
+```
+
+Salen menos chats de los que se ven en pantalla, y es normal: los grupos, los
+canales, los estados y las conversaciones de puras fotos no tienen nada que
+importar. Pero normal no es lo mismo que comprobado: al migrar el negocio hay
+que bajar hasta esa sección y confirmar que ningún cliente se quedó por fuera.
+De los tres motivos, el único que se arregla reintentando es el del celular.
 
 El botón **Informe** es para cuando algo falla: copia al portapapeles qué
 encontró —nombres de campos y cantidades, nunca contenido de mensajes—.

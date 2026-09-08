@@ -551,6 +551,26 @@
         );
       }
     }
+    /*
+     * Los que no entraron, al final del mismo archivo.
+     *
+     * En un archivo aparte era una descarga mas que se queda sin abrir. Acá va
+     * pegado a lo que sí entró, que es donde uno se hace la pregunta: salieron
+     * 58 de 103, ¿y los otros? La respuesta está dos renglones más abajo.
+     *
+     * Se rellena hasta cinco columnas para que la hoja de cálculo no parta la
+     * tabla en dos al ver renglones de distinto ancho.
+     */
+    const omitidos = waJsDio.omitidos ?? [];
+
+    if (omitidos.length) {
+      filas.push('', `OMITIDOS: ${omitidos.length} chats que no entraron,,,,`);
+      filas.push('identificador,nombre,motivo,,');
+      for (const o of omitidos) {
+        filas.push([celda(o.id), celda(o.nombre), celda(o.motivo), '', ''].join(','));
+      }
+    }
+
     const SALTO = String.fromCharCode(10);
     const MARCA_EXCEL = String.fromCharCode(0xfeff);
     bajar(
@@ -558,20 +578,6 @@
       MARCA_EXCEL + filas.join(SALTO) + SALTO,
       'text/csv;charset=utf-8',
     );
-
-    // La lista de los que no entraron, para poder revisarla.
-    const omitidos = waJsDio.omitidos ?? [];
-    if (omitidos.length) {
-      const filasOmitidas = ['identificador,nombre,motivo'];
-      for (const o of omitidos) {
-        filasOmitidas.push([celda(o.id), celda(o.nombre), celda(o.motivo)].join(','));
-      }
-      bajar(
-        'whatswv-omitidos.csv',
-        MARCA_EXCEL + filasOmitidas.join(SALTO) + SALTO,
-        'text/csv;charset=utf-8',
-      );
-    }
 
     // Si no salio nada, el porque va en el panel: sin eso "0 chats" no dice si
     // fallo la busqueda, los telefonos o el celular.
@@ -1435,7 +1441,7 @@
 
     boton('Chats (JSON + CSV)', true, async (av, op) => {
       const n = await sacarChats(fuentes, av, op);
-      av(`Listo: ${n} chats. Revisa whatswv-omitidos.csv para ver que quedo fuera.`);
+      av(`Listo: ${n} chats. Al final del CSV estan los que no entraron.`);
     });
 
     /*
