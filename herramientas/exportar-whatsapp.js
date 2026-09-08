@@ -1028,6 +1028,32 @@
     const lineas = [];
     lineas.push(`WhatsWV — ${tiendas.length} tiendas en ${new Set(tiendas.map((t) => t.base)).size} bases`);
     lineas.push(`navegador: ${navigator.userAgent}`);
+
+    /*
+     * Los globales van en el informe, no sueltos en otro boton.
+     *
+     * Son lo que decide si los chats se pueden sacar o no, y tenerlos en otro
+     * lado hacia que el informe llegara sin ellos y hubiera que pedirlos otra
+     * vez. Un informe que no contesta la pregunta principal no sirve.
+     */
+    const wpp = waJs();
+    lineas.push(
+      'globales: ' +
+        ['WPP', 'require', '__d', '__debug', 'importNamespace', 'ErrorGuard']
+          .map((k) => `${k}:${typeof window[k]}`)
+          .join('  '),
+    );
+    lineas.push(
+      'trozos: ' + (Object.keys(window).find((k) => /^webpackChunk/i.test(k)) ?? 'no'),
+    );
+    lineas.push(
+      'WA-JS: ' +
+        (wpp?.chat?.list
+          ? `si, ${modelosDe(wpp.whatsapp?.ChatStore).length} chats`
+          : wpp
+            ? 'el objeto esta pero sin chat.list'
+            : 'no'),
+    );
     lineas.push('');
 
     const conDatos = tiendas.filter((t) => (t.filas ?? t.muestra) > 0);
