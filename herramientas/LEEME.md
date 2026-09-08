@@ -28,6 +28,11 @@ No hay que volver a cargarla: queda instalada y el panel sale solo cada vez.
   `pidiendo historial 34 de 103…`. Tener el celular encendido y con internet.
   Si sale `0 chats`, el panel dice por qué: cuántos chats vio, a cuántos les
   sacó teléfono y un ejemplo de los que no.
+- **`whatswv-omitidos.csv`** — los chats que NO entraron y por qué. Salen menos
+  chats de los que se ven en pantalla, y es normal: los grupos, los canales, los
+  estados y las conversaciones de puras fotos no tienen nada que importar. Pero
+  normal no es lo mismo que comprobado: al migrar el negocio hay que abrir esta
+  lista y confirmar que ningún cliente se quedó por fuera.
 
 ## Meterlos a la bandeja
 

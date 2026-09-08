@@ -515,6 +515,20 @@
       'text/csv;charset=utf-8',
     );
 
+    // La lista de los que no entraron, para poder revisarla.
+    const omitidos = waJsDio.omitidos ?? [];
+    if (omitidos.length) {
+      const filasOmitidas = ['identificador,nombre,motivo'];
+      for (const o of omitidos) {
+        filasOmitidas.push([celda(o.id), celda(o.nombre), celda(o.motivo)].join(','));
+      }
+      bajar(
+        'whatswv-omitidos.csv',
+        MARCA_EXCEL + filasOmitidas.join(SALTO) + SALTO,
+        'text/csv;charset=utf-8',
+      );
+    }
+
     // Si no salio nada, el porque va en el panel: sin eso "0 chats" no dice si
     // fallo la busqueda, los telefonos o el celular.
     if (salida.length === 0) avisar(`0 chats. ${waJsDio.nota}`);
@@ -635,13 +649,32 @@
     const salida = [];
     let conTelefono = 0;
     let fallaron = 0;
-    let ejemploSinTelefono = null;
+
+    /*
+     * Los que no entran, anotados con el motivo.
+     *
+     * Salen menos chats de los que se ven en pantalla y eso es normal —grupos,
+     * canales, estados, conversaciones de puras fotos—, pero "normal" no es lo
+     * mismo que "comprobado". Al migrar un negocio hay que poder mirar la lista
+     * y confirmar que ningun cliente se quedo por fuera.
+     */
+    const omitidos = [];
 
     for (const [i, chat] of chats.entries()) {
+      const id = comoTexto(chat?.id) || '(sin id)';
+      // Tambien del contacto: con los chats en @lid el nombre suele estar ahi
+      // y no en el chat, y una lista de omitidos sin nombres no sirve para
+      // reconocer a quien falta, que es justo para lo que esta.
+      const nombreChat =
+        nombreDe(chat) ??
+        nombreDe(chat?.contact) ??
+        nombreDe(wpp?.whatsapp?.ContactStore?.get?.(chat?.id)) ??
+        '';
       const telefono = telefonoDelChat(chat, wpp);
 
       if (!telefono) {
-        if (!ejemploSinTelefono) ejemploSinTelefono = comoTexto(chat?.id) || '(sin id)';
+        // De un @lid o un grupo no se puede sacar numero; de un canal tampoco.
+        omitidos.push({ id, nombre: nombreChat, motivo: 'no tiene telefono (grupo, canal o @lid)' });
         continue;
       }
 
@@ -655,9 +688,12 @@
         mensajes = await wpp.chat.getMessages(chat.id, { count: -1 });
       } catch (e) {
         fallaron++;
+        omitidos.push({ id: telefono, nombre: nombreChat, motivo: `el celular no contesto: ${e?.message ?? e}` });
         console.warn(`[whatswv] historial de ${telefono}:`, e?.message ?? e);
         continue;
       }
+
+      let conTexto = 0;
 
       for (const m of mensajes) {
         const segundos = cuandoDe(m);
@@ -670,17 +706,28 @@
         const de = deQuienEs(m);
         const mio = de ? de.mio : m?.id?.fromMe === true;
 
+        conTexto++;
         salida.push({ telefono, mio, segundos, texto, opaco: null });
+      }
+
+      if (conTexto === 0) {
+        omitidos.push({
+          id: telefono,
+          nombre: nombreChat,
+          motivo: mensajes.length
+            ? `${mensajes.length} mensajes pero ninguno de texto (fotos, audios)`
+            : 'el celular no devolvio ningun mensaje',
+        });
       }
     }
 
     const nota =
       `${chats.length} chats, ${conTelefono} con telefono` +
       (fallaron ? `, ${fallaron} sin respuesta del celular` : '') +
-      (ejemploSinTelefono ? ` (ej. sin telefono: ${ejemploSinTelefono})` : '');
+      (omitidos.length ? `, ${omitidos.length} omitidos` : '');
 
     console.log(`[whatswv] WA-JS: ${salida.length} mensajes. ${nota}`);
-    return { mensajes: salida, nota };
+    return { mensajes: salida, nota, omitidos };
   }
 
   /** Los nombres que tenga WA-JS, que son los mismos que se ven en pantalla. */
