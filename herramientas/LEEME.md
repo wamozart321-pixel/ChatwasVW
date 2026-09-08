@@ -20,19 +20,32 @@ No hay que volver a cargarla: queda instalada y el panel sale solo cada vez.
 
 ## Sacar los archivos
 
-- **Contactos (CSV)** → `whatswv-contactos.csv`, es cosa de segundos.
-- **Chats (JSON)** → `whatswv-chats.json` y `whatswv-chats.csv`, el mismo
+Arriba del panel hay tres opciones. Se leen al pulsar, así que se pueden cambiar
+y volver a exportar.
+
+- **Desde** — sólo los mensajes de esa fecha en adelante. Vacío trae todo. Para
+  migrar rara vez hace falta más de un año, y acotarlo es lo que hace que esto
+  pase de varios minutos a menos de uno.
+- **Mensajes por chat** — *Todos* pide la conversación entera al celular;
+  *Últimos 200* o *50* es mucho más rápido y suele alcanzar.
+- **Sólo contactos guardados** — deja fuera a los desconocidos. En un número de
+  trabajo la mitad de los chats son consultas de una sola vez.
+
+Después:
+
+- **Contactos (CSV)** → `whatswv-contactos.csv`, cosa de segundos.
+- **Chats (JSON + CSV)** → `whatswv-chats.json` y `whatswv-chats.csv`, el mismo
   contenido. El importador lee el JSON; el CSV es para abrirlo y revisar qué
-  trajo, una fila por mensaje. **Tarda:** le pide la conversación entera al
-  celular, uno por uno; con cien chats son varios minutos. El panel va diciendo
-  `pidiendo historial 34 de 103…`. Tener el celular encendido y con internet.
-  Si sale `0 chats`, el panel dice por qué: cuántos chats vio, a cuántos les
-  sacó teléfono y un ejemplo de los que no.
+  trajo, una fila por mensaje. Tener el celular encendido y con internet: el
+  panel va diciendo `pidiendo historial 34 de 103…`.
 - **`whatswv-omitidos.csv`** — los chats que NO entraron y por qué. Salen menos
   chats de los que se ven en pantalla, y es normal: los grupos, los canales, los
   estados y las conversaciones de puras fotos no tienen nada que importar. Pero
   normal no es lo mismo que comprobado: al migrar el negocio hay que abrir esta
   lista y confirmar que ningún cliente se quedó por fuera.
+
+El botón **Informe** es para cuando algo falla: copia al portapapeles qué
+encontró —nombres de campos y cantidades, nunca contenido de mensajes—.
 
 ## Meterlos a la bandeja
 

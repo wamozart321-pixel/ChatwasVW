@@ -302,7 +302,7 @@
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
 
-  async function sacarContactos(fuentes, avisar) {
+  async function sacarContactos(fuentes, avisar, opciones) {
     if (!fuentes.contacto) throw new Error('no encontre ninguna tienda de contactos');
 
     const porTelefono = new Map();
@@ -311,6 +311,7 @@
       await recorrer(t.db, t.tienda, (fila, clave) => {
         const telefono = telefonoDe(idDe(fila, clave));
         if (!telefono) return;
+        if (opciones.soloGuardados && fila?.isAddressBookContact !== true) return;
 
         const nombre = nombreDe(fila);
         // Si el mismo numero aparece en dos tiendas, gana el que traiga nombre.
@@ -334,7 +335,28 @@
     return porTelefono.size;
   }
 
-  async function sacarChats(fuentes, avisar) {
+  /** Los teléfonos que están en la agenda del teléfono. */
+  async function telefonosDeLaAgenda(fuentes) {
+    const agenda = new Set();
+
+    for (const t of fuentes.todosContactos) {
+      await recorrer(t.db, t.tienda, (fila, clave) => {
+        if (fila?.isAddressBookContact !== true && fila?.isMyContact !== true) return;
+        const telefono = telefonoDe(idDe(fila, clave)) ?? telefonoSuelto(fila?.phoneNumber);
+        if (telefono) agenda.add(telefono);
+      });
+    }
+
+    for (const c of modelosDe(waJs()?.whatsapp?.ContactStore)) {
+      if (c?.isMyContact !== true && c?.isAddressBookContact !== true) continue;
+      const telefono = telefonoDe(comoTexto(c.id)) ?? telefonoSuelto(comoTexto(c.phoneNumber));
+      if (telefono) agenda.add(telefono);
+    }
+
+    return agenda;
+  }
+
+  async function sacarChats(fuentes, avisar, opciones) {
     if (!fuentes.mensaje) {
       throw new Error(
         'no encontre ninguna tienda de mensajes. Pulsa "Copiar informe" y pasame lo que salga',
@@ -395,7 +417,7 @@
      * tiene lo que tiene la otra. Los repetidos se quitan mas abajo.
      */
     // Lo mejor primero: WA-JS le pide el historial al celular.
-    const waJsDio = await mensajesDeWaJs(avisar);
+    const waJsDio = await mensajesDeWaJs(avisar, opciones);
     if (waJsDio.mensajes.length) {
       avisar(`${waJsDio.mensajes.length.toLocaleString('es')} mensajes desde WA-JS`);
       crudos.push(...waJsDio.mensajes);
@@ -411,8 +433,14 @@
       crudos.push(...enClaro);
     }
 
-    // Segunda pasada: abrir los que traen el texto cifrado.
-    const cerrados = crudos.filter((c) => !c.texto && c.opaco);
+    /*
+     * Segunda pasada: abrir los que traen el texto cifrado.
+     *
+     * Sólo si WA-JS no dio nada. Cuando dio, ya trae el historial COMPLETO
+     * pedido al celular, que incluye todo lo que hay en disco; ponerse a
+     * descifrar miles de filas ahí es trabajo tirado, y se nota.
+     */
+    const cerrados = waJsDio.mensajes.length ? [] : crudos.filter((c) => !c.texto && c.opaco);
     let abiertos = 0;
     let fallos = 0;
     let primerFallo = null;
@@ -444,13 +472,29 @@
       console.log(`[whatswv] descifrados ${abiertos}, fallidos ${fallos}`);
     }
 
+    /*
+     * Los filtros valen para todo lo juntado, venga de donde venga.
+     *
+     * WA-JS ya los aplica al pedir, para no preguntarle al celular de mas, pero
+     * la copia en disco no pasa por ahi: sin esto, un chat descartado por estar
+     * fuera de la agenda volvia a entrar por el otro lado, y el archivo no
+     * correspondia con lo que decia el panel.
+     */
+    const agenda = opciones.soloGuardados ? await telefonosDeLaAgenda(fuentes) : null;
+
+    const filtrados = crudos.filter((c) => {
+      if (opciones.desde && c.segundos < opciones.desde) return false;
+      if (agenda && !agenda.has(c.telefono)) return false;
+      return true;
+    });
+
     // El mismo mensaje puede venir por las dos vias: se queda una sola copia.
     // La huella es telefono+segundo+quien+texto, que es lo mismo con que el
     // importador decide si ya lo tiene.
     const chats = new Map();
     const vistos = new Set();
 
-    for (const c of crudos) {
+    for (const c of filtrados) {
       if (!c.texto) continue;
 
       const huella = `${c.telefono}|${c.segundos}|${c.mio}|${c.texto}`;
@@ -615,6 +659,15 @@
     return null;
   }
 
+  /** Si el contacto está en la agenda del teléfono. */
+  function esGuardado(chat, wpp) {
+    for (const c of [chat?.contact, wpp?.whatsapp?.ContactStore?.get?.(chat?.id), chat]) {
+      if (!c) continue;
+      if (c.isMyContact === true || c.isAddressBookContact === true) return true;
+    }
+    return false;
+  }
+
   /**
    * Los mensajes por WA-JS, pidiéndole a cada chat su historial.
    *
@@ -626,7 +679,7 @@
    * entre no haber encontrado los chats, no poder sacarles el teléfono, o que
    * el celular no contestara — y son tres arreglos distintos.
    */
-  async function mensajesDeWaJs(avisar) {
+  async function mensajesDeWaJs(avisar, opciones) {
     const wpp = waJs();
     if (!wpp?.chat?.list) return { mensajes: [], nota: 'WA-JS no esta en la pagina' };
 
@@ -672,6 +725,13 @@
         '';
       const telefono = telefonoDelChat(chat, wpp);
 
+      // Sin los desconocidos: en un numero de trabajo la mitad de los chats son
+      // consultas de una sola vez que no vale la pena traer.
+      if (telefono && opciones.soloGuardados && !esGuardado(chat, wpp)) {
+        omitidos.push({ id: telefono, nombre: nombreChat, motivo: 'no esta en la agenda' });
+        continue;
+      }
+
       if (!telefono) {
         // De un @lid o un grupo no se puede sacar numero; de un canal tampoco.
         omitidos.push({ id, nombre: nombreChat, motivo: 'no tiene telefono (grupo, canal o @lid)' });
@@ -685,7 +745,7 @@
       try {
         // -1 es "todo": con multidispositivo WA-JS lo convierte en sin limite y
         // baja el historial del celular, no solo lo que ya estaba cargado.
-        mensajes = await wpp.chat.getMessages(chat.id, { count: -1 });
+        mensajes = await wpp.chat.getMessages(chat.id, { count: opciones.porChat });
       } catch (e) {
         fallaron++;
         omitidos.push({ id: telefono, nombre: nombreChat, motivo: `el celular no contesto: ${e?.message ?? e}` });
@@ -699,6 +759,7 @@
         const segundos = cuandoDe(m);
         const texto = textoDe(m);
         if (!segundos || !texto) continue;
+        if (opciones.desde && segundos < opciones.desde) continue;
 
         // El chat ya dice de quien es la conversacion; del mensaje solo hace
         // falta si salio de aca. Asi tambien sirven los mensajes cuyo
@@ -715,7 +776,7 @@
           id: telefono,
           nombre: nombreChat,
           motivo: mensajes.length
-            ? `${mensajes.length} mensajes pero ninguno de texto (fotos, audios)`
+            ? `${mensajes.length} mensajes, ninguno de texto en el rango pedido`
             : 'el celular no devolvio ningun mensaje',
         });
       }
@@ -902,47 +963,6 @@
     return salida;
   }
 
-  /**
-   * Dice si se puede llegar a los mensajes, y por dónde.
-   *
-   * Enumera los globales porque son la explicación: si no está ninguno, no es
-   * que falte código, es que WhatsApp ya los borró y desde la consola se llega
-   * tarde. Eso hay que verlo, no deducirlo.
-   */
-  function probarViaWhatsApp(avisar) {
-    const estado = ['WPP', 'require', '__d', '__debug', 'importNamespace', 'ErrorGuard']
-      .map((k) => `${k}:${typeof window[k]}`)
-      .join('  ');
-    const numerados = Object.keys(window).find((k) => /^webpackChunk/i.test(k));
-    console.log('[whatswv] globales:', estado, '| trozos:', numerados ?? 'no');
-
-    const wpp = waJs();
-    if (wpp?.chat?.list) {
-      const chats = modelosDe(wpp.whatsapp?.ChatStore).length;
-      avisar(`WA-JS presente (${chats} chats). Usa "Chats (JSON)": pedira el historial al celular.`);
-      return;
-    }
-
-    const modulos = modulosDeLaPagina().filter(Boolean);
-    console.log('[whatswv] modulos alcanzados:', modulos.length);
-
-    if (modulos.length === 0) {
-      avisar(
-        'No hay WA-JS ni se alcanza el codigo de WhatsApp: desde la consola se llega tarde. Mira la consola.',
-      );
-      return;
-    }
-
-    const mensajes = mensajesDeWhatsApp();
-    if (mensajes.length === 0) {
-      avisar(`Alcance ${modulos.length} modulos pero ninguna coleccion de mensajes. Mira la consola.`);
-      return;
-    }
-
-    console.log('[whatswv] ejemplo:', mensajes[0]);
-    avisar(`${mensajes.length} mensajes en claro desde WhatsApp. Ya puedes usar "Chats (JSON)".`);
-  }
-
   // --- abrir la caja ----------------------------------------------------------
 
   /*
@@ -1103,72 +1123,6 @@
   }
 
   /**
-   * Descifra unos pocos y cuenta paso por paso qué pasó, sin exportar nada.
-   *
-   * Deja todo en la consola: qué llaves hay y de qué tipo, qué trae cada
-   * `msgRowOpaqueData`, y con qué combinación se abrió o por qué no. "0 de 3" a
-   * secas no dice en qué paso se rompió, y sin eso el arreglo es a ciegas.
-   */
-  async function probarDescifrado(fuentes, avisar) {
-    const llaves = await cargarLlaves(fuentes.tiendas);
-
-    console.log('[whatswv] llaves encontradas:', llaves.size);
-    for (const [id, { llave, de }] of llaves) {
-      const tipo = llave?.constructor?.name ?? typeof llave;
-      const extra =
-        llave instanceof CryptoKey
-          ? `algoritmo:${llave.algorithm?.name} largo:${llave.algorithm?.length} usos:${llave.usages}`
-          : `claves:${Object.keys(llave ?? {}).slice(0, 8).join('|')}`;
-      console.log(`  llave ${id} de ${de} — ${tipo} — ${extra}`);
-    }
-
-    if (llaves.size === 0) {
-      avisar('No encontre ninguna llave. El detalle quedo en la consola.');
-      return;
-    }
-
-    const muestras = [];
-    for (const t of fuentes.todosMensajes) {
-      if (muestras.length >= 3) break;
-      await recorrer(
-        t.db,
-        t.tienda,
-        (fila) => {
-          if (muestras.length >= 3) return;
-          if (fila?.msgRowOpaqueData) muestras.push(fila.msgRowOpaqueData);
-        },
-        300,
-      );
-    }
-
-    if (muestras.length === 0) {
-      avisar('Ningun mensaje trae msgRowOpaqueData. Pulsa "Copiar informe" y pasamelo.');
-      return;
-    }
-
-    let bien = 0;
-
-    for (const [i, op] of muestras.entries()) {
-      console.log(`[whatswv] --- muestra ${i + 1}`);
-      const claro = await abrirOpaco(op, llaves, (m) => console.log('    ' + m));
-
-      if (!claro) continue;
-
-      const texto = buscarTexto(claro);
-      if (texto) {
-        bien++;
-        console.log(`    texto: ${JSON.stringify(texto.slice(0, 80))}`);
-      } else {
-        // Se abrio pero no se reconoce: ver los primeros bytes dice si es
-        // protobuf, y donde queda el texto adentro.
-        console.log('    se abrio pero no encontre texto. Contenido:', claro);
-      }
-    }
-
-    avisar(`Descifrados ${bien} de ${muestras.length}. El detalle quedo en la consola.`);
-  }
-
-  /**
    * Un informe de texto de todo lo que hay, para poder pegarlo en un mensaje.
    *
    * Van los NOMBRES de los campos, nunca el contenido: hace falta saber qué
@@ -1244,44 +1198,6 @@
     return lineas.join(String.fromCharCode(10));
   }
 
-  /**
-   * Todo lo que hay, sin exportar nada.
-   *
-   * Cuenta las filas de verdad —no la muestra— y deja en la consola un registro
-   * entero de cada tienda. Cuando la exportación sale vacía, ese registro es lo
-   * único que dice qué forma tienen los datos en ESTA versión de WhatsApp; sin
-   * él sólo queda adivinar.
-   */
-  async function diagnostico(tiendas, avisar) {
-    for (const t of tiendas) {
-      if (!t.db) continue;
-      avisar(`contando ${t.base} / ${t.tienda}…`);
-      t.filas = await recorrer(t.db, t.tienda, () => {});
-    }
-
-    console.table(
-      tiendas.map((t) => ({
-        base: t.base,
-        tienda: t.tienda,
-        filas: t.filas ?? 0,
-        clase: t.clase ?? '(no se reconocio)',
-      })),
-    );
-
-    for (const t of tiendas) {
-      if (!t.ejemplo || !(t.filas ?? 0)) continue;
-      console.log(`--- ${t.base} / ${t.tienda} (${t.filas} filas, ${t.clase ?? 'no reconocida'})`);
-      console.log('    clave:', t.ejemplo.clave);
-      console.log('    fila:', t.ejemplo.fila);
-    }
-
-    const total = tiendas.reduce((n, t) => n + (t.filas ?? 0), 0);
-    avisar(
-      `${total.toLocaleString('es')} filas en ${tiendas.length} tiendas. ` +
-        'Usa "Copiar informe" para pasarlo.',
-    );
-  }
-
   async function copiarInforme(tiendas, avisar) {
     // Se cuenta antes si no se ha contado: el informe sin numeros no dice cual
     // es la tienda que importa.
@@ -1310,6 +1226,10 @@
 
   const VERDE = '#1F9D55';
 
+  const ESTILO_CAMPO =
+    'width:100%;box-sizing:border-box;margin-bottom:8px;padding:6px 8px;' +
+    'border:1px solid #d4d4d8;border-radius:6px;font:inherit;background:#fff;color:#111';
+
   function panel() {
     document.getElementById(ID_PANEL)?.remove();
 
@@ -1317,23 +1237,14 @@
     caja.id = ID_PANEL;
     caja.style.cssText = [
       'position:fixed', 'top:16px', 'right:16px', 'z-index:2147483647',
-      'width:300px', 'padding:14px', 'border-radius:12px',
+      'width:290px', 'padding:14px', 'border-radius:12px',
       'background:#fff', 'color:#111', 'box-shadow:0 8px 32px rgba(0,0,0,.28)',
       'font:13px/1.45 system-ui,-apple-system,Segoe UI,sans-serif',
     ].join(';');
 
     const titulo = document.createElement('div');
-    titulo.style.cssText = `font-weight:700;color:${VERDE};margin-bottom:2px`;
+    titulo.style.cssText = `font-weight:700;color:${VERDE};margin-bottom:10px`;
     titulo.textContent = 'WhatsWV — exportar';
-
-    const sub = document.createElement('div');
-    sub.style.cssText = 'color:#666;font-size:11px;margin-bottom:12px';
-    sub.textContent = 'lee la copia local de este navegador';
-
-    const estado = document.createElement('div');
-    estado.style.cssText =
-      'margin-top:12px;padding:8px;border-radius:8px;background:#f4f4f5;color:#444;font-size:11px;min-height:32px';
-    estado.textContent = 'Buscando…';
 
     const cerrar = document.createElement('button');
     cerrar.textContent = '×';
@@ -1341,13 +1252,73 @@
       'position:absolute;top:8px;right:10px;border:0;background:none;font-size:20px;line-height:1;color:#999;cursor:pointer';
     cerrar.onclick = () => caja.remove();
 
-    caja.append(titulo, sub, estado, cerrar);
+    caja.append(titulo, cerrar);
+
+    const rotulo = (texto) => {
+      const l = document.createElement('div');
+      l.style.cssText = 'color:#666;font-size:11px;margin-bottom:3px';
+      l.textContent = texto;
+      caja.appendChild(l);
+    };
+
+    /*
+     * Desde qué fecha.
+     *
+     * Para migrar no hace falta traer cinco años de conversaciones: lo que
+     * sirve es lo reciente, y acotar la fecha es lo que hace que esto pase de
+     * varios minutos a menos de uno.
+     */
+    rotulo('Desde (vacío = todo)');
+    const desde = document.createElement('input');
+    desde.type = 'date';
+    desde.style.cssText = ESTILO_CAMPO;
+    caja.appendChild(desde);
+
+    rotulo('Mensajes por chat');
+    const porChat = document.createElement('select');
+    porChat.style.cssText = ESTILO_CAMPO;
+    for (const [valor, texto] of [
+      ['-1', 'Todos (tarda)'],
+      ['200', 'Últimos 200'],
+      ['50', 'Últimos 50'],
+    ]) {
+      const o = document.createElement('option');
+      o.value = valor;
+      o.textContent = texto;
+      porChat.appendChild(o);
+    }
+    caja.appendChild(porChat);
+
+    const linea = document.createElement('label');
+    linea.style.cssText =
+      'display:flex;gap:6px;align-items:center;margin-bottom:10px;color:#444;cursor:pointer';
+    const guardados = document.createElement('input');
+    guardados.type = 'checkbox';
+    linea.append(guardados, document.createTextNode('Sólo contactos guardados'));
+    caja.appendChild(linea);
+
+    const estado = document.createElement('div');
+    estado.style.cssText =
+      'margin-top:10px;padding:8px;border-radius:8px;background:#f4f4f5;color:#444;font-size:11px;min-height:32px';
+    estado.textContent = 'Buscando…';
+    caja.appendChild(estado);
+
     document.body.appendChild(caja);
 
     const avisar = (texto) => {
       estado.textContent = texto;
       console.log('[whatswv]', texto);
     };
+
+    /** Lo elegido en el panel, al momento de pulsar. */
+    const opciones = () => ({
+      // A segundos, que es como WhatsApp guarda las fechas. Se toma el
+      // principio del dia en hora local, que es lo que uno espera al escribir
+      // una fecha a mano.
+      desde: desde.value ? Math.floor(new Date(desde.value + 'T00:00:00').getTime() / 1000) : null,
+      porChat: Number(porChat.value),
+      soloGuardados: guardados.checked,
+    });
 
     const boton = (texto, principal, alPulsar) => {
       const b = document.createElement('button');
@@ -1368,7 +1339,7 @@
         b.textContent = 'Trabajando…';
 
         try {
-          await alPulsar(avisar);
+          await alPulsar(avisar, opciones());
         } catch (e) {
           avisar('Error: ' + (e?.message ?? e));
           console.error('[whatswv]', e);
@@ -1449,14 +1420,6 @@
     }
 
     const tiendas = await inventario();
-
-    if (tiendas.length === 0) {
-      avisar(
-        'No encontre ninguna base. Revisa que esto sea la pestana de web.whatsapp.com con la sesion abierta y los chats cargados.',
-      );
-      return;
-    }
-
     const fuentes = {
       contacto: elegir(tiendas, 'contacto'),
       mensaje: elegir(tiendas, 'mensaje'),
@@ -1465,27 +1428,34 @@
       tiendas,
     };
 
-    boton('Contactos (CSV)', true, async (av) => {
-      const n = await sacarContactos(fuentes, av);
+    boton('Contactos (CSV)', true, async (av, op) => {
+      const n = await sacarContactos(fuentes, av, op);
       av(`Listo: ${n} contactos en whatswv-contactos.csv`);
     });
 
-    boton('Chats (JSON)', true, async (av) => {
-      const n = await sacarChats(fuentes, av);
-      av(`Listo: ${n} chats en whatswv-chats.json`);
+    boton('Chats (JSON + CSV)', true, async (av, op) => {
+      const n = await sacarChats(fuentes, av, op);
+      av(`Listo: ${n} chats. Revisa whatswv-omitidos.csv para ver que quedo fuera.`);
     });
 
-    boton('Probar via WhatsApp', false, (av) => probarViaWhatsApp(av));
-    boton('Probar descifrado', false, (av) => probarDescifrado(fuentes, av));
-    boton('Copiar informe', false, (av) => copiarInforme(tiendas, av));
-    boton('Ver que hay', false, (av) => diagnostico(tiendas, av));
+    /*
+     * El informe se queda, las sondas no.
+     *
+     * Las sondas eran para averiguar cómo guarda WhatsApp sus datos, y eso ya
+     * se sabe. El informe es otra cosa: es lo que hay que mandar el día que
+     * WhatsApp cambie algo y esto deje de funcionar.
+     */
+    boton('Informe (si algo falla)', false, (av) => copiarInforme(tiendas, av));
 
     const wpp = waJs();
+
     if (wpp?.chat?.list) {
       avisar(`Listo. WA-JS ve ${modelosDe(wpp.whatsapp?.ChatStore).length} chats.`);
+    } else if (fuentes.contacto) {
+      // Sin WA-JS los contactos salen igual: estan sin cifrar en la base local.
+      avisar('Sin WA-JS: solo se pueden sacar los contactos. Revisa que la extension este activa.');
     } else {
-      const donde = (t) => (t ? `${t.base}/${t.tienda}` : 'NO ENCONTRADA');
-      avisar(`Sin WA-JS. Contactos: ${donde(fuentes.contacto)}. Mensajes: ${donde(fuentes.mensaje)}.`);
+      avisar('No encontre los datos de WhatsApp. Recarga la pagina con los chats a la vista.');
     }
   })();
 })();
