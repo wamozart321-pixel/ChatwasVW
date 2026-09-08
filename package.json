@@ -30,7 +30,8 @@
     "test:admin": "tsx test/admin.ts",
     "limpiar-pruebas": "tsx scripts/limpiar-pruebas.ts",
     "iconos": "node recursos/generar-iconos.js",
-    "importar": "tsx scripts/importar.ts"
+    "importar": "tsx scripts/importar.ts",
+    "exportador:empaquetar": "node herramientas/empaquetar.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

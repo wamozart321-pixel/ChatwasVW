@@ -30,3 +30,6 @@ movil/android/local.properties
 # WhatsWV instalado no acepta la actualizacion: hay que desinstalar primero.
 # Va aparte del repositorio y se respalda a mano.
 movil/firma/
+
+# el zip de la extension, que se arma con npm run exportador:empaquetar
+herramientas/salida/

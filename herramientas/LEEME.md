@@ -5,6 +5,27 @@ las extensiones que cobran, y por el mismo camino.
 
 ## Instalar
 
+### Pasarla a otro computador
+
+```
+npm run exportador:empaquetar
+```
+
+Deja `herramientas/salida/whatswv-exportar-1.0.0.zip`. Se copia, se descomprime
+en un sitio donde se pueda quedar —si se borra la carpeta, la extensión deja de
+funcionar— y se siguen los pasos del `INSTALAR.txt` que va adentro, que son los
+mismos de abajo.
+
+**No hay instalador de un clic.** Chrome y Opera bloquean instalar extensiones
+desde un archivo desde 2014: sólo aceptan las de su tienda. Un `.crx` suelto no
+se instala ni arrastrándolo. Las alternativas son publicarla en la Chrome Web
+Store (5 dólares y revisión de Google, que para algo que lee WhatsApp puede
+terminar en rechazo) o forzarla por política de Windows tocando el registro de
+cada máquina. Para una migración que se hace una vez, cargarla a mano es lo
+razonable.
+
+### A mano
+
 Es una extensión sin empaquetar. En **Opera**: `opera://extensions`. En
 **Chrome**: `chrome://extensions`.
 
