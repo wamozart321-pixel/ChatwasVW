@@ -1088,6 +1088,20 @@ async function main() {
     );
   });
 
+  await prueba('el selector no muestra las plantillas de prueba', async () => {
+    // Las que quedaron de probar tampoco se pueden borrar de la cuenta, y esas
+    // si estan en espanol: el filtro por idioma no las agarra. Se esconden por
+    // nombre, para que nadie mande «Prueba temporal.» a un cliente.
+    const { cuerpo: lista } = await api(tokenAndres, '/plantillas');
+
+    const dePrueba = lista.filter((p: any) => /^prueba|_tmp$/i.test(p.nombre));
+    assert.deepEqual(
+      dePrueba.map((p: any) => p.nombre),
+      [],
+      'el selector muestra plantillas de prueba',
+    );
+  });
+
   await prueba('una plantilla inexistente da 404', async () => {
     const { status } = await api(
       tokenAndres,

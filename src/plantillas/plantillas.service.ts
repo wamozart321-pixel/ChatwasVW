@@ -12,6 +12,22 @@ interface ComponenteMeta {
   buttons?: { type: string; text: string }[];
 }
 
+/**
+ * Las que quedaron de probar y no se pueden borrar.
+ *
+ * Meta rechaza el DELETE con «Need permission on either WhatsApp Business
+ * Account or owner/shared business» aunque el token tenga
+ * whatsapp_business_management: borrar plantillas pide control total sobre la
+ * cuenta, y la nuestra es compartida. Así que se esconden acá: siguen en la
+ * cuenta de Meta, pero no en el selector, que es donde estorban —un asesor
+ * apurado manda «Prueba temporal.» a un cliente y no hay cómo recogerlo—.
+ *
+ * La regla es por nombre para que valga también para la próxima: cualquiera
+ * que empiece con «prueba» o termine en «_tmp» no se muestra. El que quiera
+ * una plantilla de verdad, que no la bautice así.
+ */
+const ES_DE_PRUEBA = /^prueba|_tmp$/i;
+
 /** Cuenta los {{1}}, {{2}}… de un texto y devuelve cuántos hay. */
 function cuantasVariables(texto: string | undefined): number {
   if (!texto) return 0;
@@ -88,13 +104,15 @@ export class PlantillasService {
   }
 
   /**
-   * Sólo las aprobadas y en el idioma del negocio.
+   * Sólo las aprobadas, en el idioma del negocio y que no sean de prueba.
    *
    * Las que Meta deja de fábrica en la cuenta —hello_world y las cuatro de la
    * tienda de ejemplo «Jasper's Market»— están en inglés y no se pueden borrar
    * sin control total sobre la cuenta de WhatsApp. Filtrarlas por idioma las
    * saca del selector: una plantilla en inglés no se le manda a un cliente de
    * Bogotá, así que la regla vale igual para cualquiera que aparezca después.
+   *
+   * Las de prueba se filtran por nombre, ver ES_DE_PRUEBA.
    */
   async listar() {
     const filas = await this.db
@@ -103,30 +121,32 @@ export class PlantillasService {
       .where(and(eq(templates.estado, 'APPROVED'), eq(templates.idioma, env.PLANTILLAS_IDIOMA)))
       .orderBy(asc(templates.nombre));
 
-    return filas.map((t) => {
-      const componentes = (t.componentes ?? []) as ComponenteMeta[];
-      const cuerpo = componentes.find((c) => c.type === 'BODY');
-      const encabezado = componentes.find((c) => c.type === 'HEADER');
-      const pie = componentes.find((c) => c.type === 'FOOTER');
-      const botones = componentes.find((c) => c.type === 'BUTTONS');
+    return filas
+      .filter((t) => !ES_DE_PRUEBA.test(t.nombre))
+      .map((t) => {
+        const componentes = (t.componentes ?? []) as ComponenteMeta[];
+        const cuerpo = componentes.find((c) => c.type === 'BODY');
+        const encabezado = componentes.find((c) => c.type === 'HEADER');
+        const pie = componentes.find((c) => c.type === 'FOOTER');
+        const botones = componentes.find((c) => c.type === 'BUTTONS');
 
-      return {
-        id: t.id,
-        nombre: t.nombre,
-        idioma: t.idioma,
-        categoria: t.categoria,
-        textoEncabezado: encabezado?.format === 'TEXT' ? (encabezado.text ?? null) : null,
-        formatoEncabezado: encabezado?.format ?? null,
-        textoCuerpo: cuerpo?.text ?? '',
-        textoPie: pie?.text ?? null,
-        botones: botones?.buttons?.map((b) => b.text) ?? [],
-        variablesEncabezado:
-          encabezado?.format === 'TEXT' ? cuantasVariables(encabezado.text) : 0,
-        variablesCuerpo: cuantasVariables(cuerpo?.text),
-        /** Un encabezado de imagen/video/documento necesita un archivo, no texto. */
-        necesitaArchivo: !!encabezado && encabezado.format !== 'TEXT',
-      };
-    });
+        return {
+          id: t.id,
+          nombre: t.nombre,
+          idioma: t.idioma,
+          categoria: t.categoria,
+          textoEncabezado: encabezado?.format === 'TEXT' ? (encabezado.text ?? null) : null,
+          formatoEncabezado: encabezado?.format ?? null,
+          textoCuerpo: cuerpo?.text ?? '',
+          textoPie: pie?.text ?? null,
+          botones: botones?.buttons?.map((b) => b.text) ?? [],
+          variablesEncabezado:
+            encabezado?.format === 'TEXT' ? cuantasVariables(encabezado.text) : 0,
+          variablesCuerpo: cuantasVariables(cuerpo?.text),
+          /** Un encabezado de imagen/video/documento necesita un archivo, no texto. */
+          necesitaArchivo: !!encabezado && encabezado.format !== 'TEXT',
+        };
+      });
   }
 
   /**

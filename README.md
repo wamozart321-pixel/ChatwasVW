@@ -517,6 +517,14 @@ y un mensaje que ya salió por WhatsApp no se corrige.
 No confundirlos con las plantillas: el mensaje rápido sirve mientras la ventana de
 24 h esté abierta; pasada la ventana, sólo entra una plantilla aprobada.
 
+**Lo que quedó de probar no se puede borrar, pero se esconde.** Meta rechaza el
+DELETE de una plantilla con «Need permission on either WhatsApp Business Account or
+owner/shared business» aunque el token tenga `whatsapp_business_management`: borrar
+pide control total sobre la cuenta y la nuestra es compartida. Por eso el selector
+filtra por nombre las que empiezan con `prueba` o terminan en `_tmp` — siguen en la
+cuenta de Meta, pero nadie las manda por error. Para sacarlas de verdad hay que
+entrar al WhatsApp Manager con la cuenta dueña del negocio.
+
 Las plantillas con **archivo en el encabezado** (imagen, video o documento) todavía
 no están soportadas: el selector las muestra pero avisa. Las de sólo texto, con o
 sin variables, funcionan completas.
