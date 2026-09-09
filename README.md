@@ -40,6 +40,7 @@ dos contesten lo mismo, y todo en tiempo real. Los cuatro pasos están completos
 - Vista previa antes de enviar un archivo, y visor a pantalla completa para verlo.
 - Plantillas sincronizadas de Meta, con variables y vista previa antes de mandar.
 - Mensajes rápidos: se abren con «/» en el redactor y entran al campo para retocarlos.
+- Modo claro, oscuro o el que diga el sistema, recordado en cada dispositivo.
 - Notas internas intercaladas en el hilo, que el cliente nunca ve.
 - Etiquetas por conversación, visibles en la lista y usables como filtro.
 - Métricas por asesor y estado de la cola en vivo, con desglose: cada número se
@@ -179,6 +180,26 @@ CREATE UNIQUE INDEX ON conversations (contact_id) WHERE estado <> 'resuelto';
 
 Sin esto, dos webhooks simultáneos del mismo cliente crean dos hilos y dos asesores
 terminan contestando por separado.
+
+**El modo oscuro no toca los componentes, les cambia el significado a los colores.**
+La bandeja se escribió con los colores puestos a mano —`bg-white`, `text-slate-400`,
+`border-slate-200`— repartidos por veinte componentes. Ponerle un `dark:` a cada uno eran
+cientos de ediciones y la garantía de que alguna quedara a medias. Como Tailwind 4
+compila `text-slate-400` a `color: var(--color-slate-400)`, alcanza con redefinir esas
+variables dentro de `.oscuro` en [`estilos.css`](web/src/estilos.css): la interfaz entera
+se da vuelta sin tocar un componente.
+
+Tres casos no entran en esa regla y van por clase, cada uno comentado en el archivo:
+`bg-white` y `text-white` son la misma variable (la superficie tiene que oscurecerse, el
+texto sobre el verde de marca no); `bg-slate-900/50` es el velo de los modales y tiene
+que seguir oscuro; y `bg-slate-800 text-white` es la píldora activa, que se da vuelta
+entera para que «esto está seleccionado» siga leyéndose. Hay un detalle que se paga
+caro si se olvida: las variantes son clases aparte, así que `focus:bg-white` necesita
+su propia línea — sin ella el redactor se ponía blanco justo al hacerle foco.
+
+Qué queda sin pisar es a propósito: los botones sólidos con letra blanca, los velos y
+los acentos claros. Se puede auditar mirando que toda utilidad de color del código
+esté cubierta por una variable o por una regla.
 
 **Los estados sólo avanzan.** `status_rank` numérico: un `delivered` que llega tarde
 no puede pisar un `read`. Pasa seguido en la práctica.

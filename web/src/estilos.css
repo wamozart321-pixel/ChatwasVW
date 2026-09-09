@@ -61,3 +61,285 @@ body {
     user-select: none;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Modo oscuro
+
+   La bandeja se escribió entera con los colores puestos a mano —bg-white,
+   text-slate-400, border-slate-200— repartidos por veinte componentes. Meterle
+   un `dark:` a cada uno serían cientos de ediciones y la garantía de que
+   alguna quede a medias.
+
+   En vez de eso, acá se le cambia el significado a los colores que ya usa.
+   Tailwind 4 compila `text-slate-400` a `color: var(--color-slate-400)`, así
+   que redefinir esas variables dentro de `.oscuro` da vuelta toda la interfaz
+   sin tocar un solo componente.
+
+   Tres cosas no se pueden arreglar así, y van por clase más abajo:
+
+     · `bg-white` y `text-white` son la misma variable. Las superficies tienen
+       que oscurecerse, pero el texto blanco sobre el verde de marca se tiene
+       que quedar blanco.
+     · `bg-slate-900/50` es el velo de los modales, y tiene que seguir siendo
+       oscuro. Por suerte la clase con opacidad es otra —`bg-slate-900/50` no
+       la toca un selector `.bg-slate-900`—, así que el sólido se puede pisar
+       sin arruinar los velos.
+     · `bg-slate-800 text-white` es la píldora activa: si se aclara el fondo
+       hay que oscurecer la letra, o desaparece.
+   ───────────────────────────────────────────────────────────────────────── */
+
+.oscuro {
+  /* Para que los controles nativos —scrollbars, menús de <select>, el
+     calendario de un <input type="date">— se dibujen oscuros ellos también. */
+  color-scheme: dark;
+
+  /* Superficies y bordes. El lienzo es más oscuro que los paneles, así que un
+     campo de texto (bg-slate-50) se lee hundido y no flotando. */
+  --color-slate-50: #0b1220;
+  --color-slate-100: #1c2740;
+  --color-slate-200: #2a3750;
+
+  /* Texto. Del más apagado al más presente; nunca blanco puro, que sobre
+     fondo oscuro vibra y cansa a las dos horas de turno. */
+  --color-slate-400: #8695ab;
+  --color-slate-500: #9daabd;
+  --color-slate-600: #b6c1d1;
+  --color-slate-700: #ccd5e1;
+
+  /* Los tintes suaves —el aviso ámbar, el error rojo, la nota violeta— y sus
+     bordes. En claro son un papel de color; acá son una sombra de ese color. */
+  --color-amber-50: #2a1f08;
+  --color-amber-100: #3a2a0b;
+  --color-amber-200: #4d3a12;
+  --color-amber-300: #5f4916;
+  --color-red-50: #2b1113;
+  --color-red-100: #3c1619;
+  --color-red-200: #501f24;
+  --color-emerald-50: #0c2119;
+  --color-emerald-100: #113024;
+  --color-emerald-200: #1a4433;
+  --color-sky-50: #0b1f2e;
+  --color-sky-100: #102b3f;
+  --color-sky-200: #17405c;
+  --color-violet-50: #1d1430;
+  --color-violet-100: #271a42;
+  --color-violet-200: #382558;
+  --color-teal-100: #0d2a2a;
+  --color-indigo-100: #1b2046;
+  --color-orange-100: #33200c;
+  --color-pink-100: #331425;
+  --color-marca-50: #0d2219;
+  --color-marca-100: #123020;
+}
+
+/* El fondo de la página, para que no haya un destello blanco al cargar ni al
+   estirar la lista más allá del final. */
+.oscuro body {
+  background-color: #0b1220;
+}
+
+/* Los paneles, las burbujas del cliente, el redactor, la cabecera. */
+.oscuro .bg-white {
+  background-color: #111a2b;
+}
+
+.oscuro .hover\:bg-white:hover {
+  background-color: #162033;
+}
+
+/* slate-300 y slate-800/900 se usan para dos cosas cada uno, así que van por
+   clase y no por variable. */
+.oscuro .bg-slate-300 {
+  background-color: #3a4861;
+}
+
+.oscuro .border-slate-300 {
+  border-color: #3a4861;
+}
+
+.oscuro .hover\:border-slate-400:hover {
+  border-color: #54637d;
+}
+
+.oscuro .text-slate-300 {
+  color: #64748b;
+}
+
+.oscuro .text-slate-800 {
+  color: #e3e9f1;
+}
+
+.oscuro .text-slate-900 {
+  color: #f2f5f9;
+}
+
+/* La píldora activa y los botones oscuros: se dan vuelta enteros —fondo claro,
+   letra oscura— para que «esto está seleccionado» siga leyéndose de un vistazo.
+   Los velos de los modales (bg-slate-900/50) son otra clase y no entran acá. */
+.oscuro .bg-slate-800,
+.oscuro .bg-slate-900 {
+  background-color: #e3e9f1;
+}
+
+.oscuro .border-slate-800 {
+  border-color: #e3e9f1;
+}
+
+.oscuro .bg-slate-500.text-white,
+.oscuro .bg-slate-800.text-white,
+.oscuro .bg-slate-900.text-white {
+  color: #0b1220;
+}
+
+.oscuro .bg-slate-500.text-white {
+  background-color: #334a63;
+  color: #f2f5f9;
+}
+
+.oscuro .hover\:bg-slate-800:hover,
+.oscuro .hover\:bg-slate-900:hover {
+  background-color: #cbd5e1;
+}
+
+/* El texto de color. Los tonos 600-900 están hechos para leerse sobre papel
+   blanco; sobre fondo oscuro hay que subirlos varios pasos. Los fondos sólidos
+   del mismo tono —el botón verde de Resolver, el rojo de Eliminar— no se tocan:
+   siguen llevando letra blanca. */
+.oscuro .text-amber-600 {
+  color: #fbbf24;
+}
+
+.oscuro .text-amber-700 {
+  color: #fcd34d;
+}
+
+.oscuro .text-amber-800 {
+  color: #fde68a;
+}
+
+.oscuro .text-amber-900 {
+  color: #fef3c7;
+}
+
+.oscuro .text-red-600 {
+  color: #f87171;
+}
+
+.oscuro .text-red-700,
+.oscuro .text-red-800 {
+  color: #fca5a5;
+}
+
+.oscuro .hover\:text-red-500:hover {
+  color: #f87171;
+}
+
+.oscuro .text-emerald-700,
+.oscuro .text-emerald-800 {
+  color: #6ee7b7;
+}
+
+.oscuro .text-sky-700,
+.oscuro .text-sky-900 {
+  color: #7dd3fc;
+}
+
+.oscuro .text-violet-700 {
+  color: #c4b5fd;
+}
+
+.oscuro .text-teal-700 {
+  color: #5eead4;
+}
+
+.oscuro .text-indigo-700 {
+  color: #a5b4fc;
+}
+
+.oscuro .text-orange-700 {
+  color: #fdba74;
+}
+
+.oscuro .text-pink-700 {
+  color: #f9a8d4;
+}
+
+.oscuro .text-marca-600 {
+  color: #3ecf7e;
+}
+
+.oscuro .text-marca-700,
+.oscuro .hover\:text-marca-600:hover {
+  color: #4ddc8a;
+}
+
+/* Los scrollbars, que arriba quedaron clavados en un gris de modo claro. */
+.oscuro * {
+  scrollbar-color: #3a4861 transparent;
+}
+
+.oscuro *::-webkit-scrollbar-thumb {
+  background: #3a4861;
+}
+
+.oscuro *::-webkit-scrollbar-thumb:hover {
+  background: #54637d;
+}
+
+/* El mapa de Leaflet llega con sus propios colores claros. Bajarle el brillo es
+   lo único que se puede hacer sin cambiar de proveedor de mapas. */
+.oscuro .leaflet-tile {
+  filter: brightness(0.75) contrast(1.1);
+}
+
+/* Las variantes son clases aparte: `focus:bg-white` no lo toca un selector
+   `.bg-white`, así que las que apuntan a un color pisado acá arriba necesitan su
+   propia línea. Sin esto, el redactor se ponía BLANCO al hacerle foco, que es
+   justo el momento en que el asesor lo está mirando. */
+.oscuro .focus\:bg-white:focus {
+  background-color: #162033;
+}
+
+.oscuro .hover\:bg-slate-300:hover {
+  background-color: #54637d;
+}
+
+.oscuro .hover\:border-slate-300:hover {
+  border-color: #54637d;
+}
+
+.oscuro .hover\:text-red-600:hover {
+  color: #f87171;
+}
+
+.oscuro .hover\:text-amber-700:hover {
+  color: #fcd34d;
+}
+
+.oscuro .hover\:text-marca-700:hover {
+  color: #4ddc8a;
+}
+
+.oscuro .hover\:text-sky-700:hover {
+  color: #7dd3fc;
+}
+
+.oscuro .hover\:text-emerald-800:hover {
+  color: #6ee7b7;
+}
+
+/* Tres verdes y un azul que quedaban sobre su propio tinte —texto verde oscuro
+   dentro de una caja verde oscura— y desaparecian. El tinte ya se oscurecio mas
+   arriba; la letra tiene que subir con el. */
+.oscuro .text-marca-500 {
+  color: #3ecf7e;
+}
+
+.oscuro .text-marca-700\/80 {
+  color: #4ddc8acc;
+}
+
+/* sky-600 sobre fondo oscuro da 3,3:1, y son titulitos de 11 px. */
+.oscuro .text-sky-600 {
+  color: #7dd3fc;
+}

@@ -37,6 +37,8 @@ import Redactor from './componentes/Redactor';
 import { olvidarFoto } from './componentes/FotoContacto';
 import Reenviar from './componentes/Reenviar';
 import SelectorPlantilla from './componentes/SelectorPlantilla';
+import BotonTema from './componentes/BotonTema';
+import { aplicarTema, escucharSistema, guardarTema, temaGuardado, type Tema } from './tema';
 
 const ESTADOS = [
   { id: 'abierto', etiqueta: 'Abierto' },
@@ -47,6 +49,7 @@ const ESTADOS = [
 export default function App() {
   const [asesor, setAsesor] = useState<Asesor | null>(null);
   const [comprobando, setComprobando] = useState(true);
+  const [tema, setTema] = useState<Tema>(temaGuardado);
 
   const [conversaciones, setConversaciones] = useState<Conversacion[]>([]);
   const [seleccionada, setSeleccionada] = useState<string | null>(null);
@@ -350,6 +353,19 @@ export default function App() {
     };
   }, [seleccionada]);
 
+  // El <html> lo deja listo el script de index.html antes de que React monte;
+  // esto lo mantiene al dia cuando el asesor cambia de tema o cuando el sistema
+  // se pasa a oscuro solo al caer la tarde.
+  useEffect(() => {
+    aplicarTema(tema);
+    return escucharSistema(() => aplicarTema(tema));
+  }, [tema]);
+
+  function elegirTema(t: Tema) {
+    setTema(t);
+    guardarTema(t);
+  }
+
   const actual = useMemo(
     () => conversaciones.find((c) => c.id === seleccionada) ?? null,
     [conversaciones, seleccionada],
@@ -568,6 +584,8 @@ export default function App() {
               ⟳
             </button>
           )}
+
+          <BotonTema tema={tema} onElegir={elegirTema} />
 
           <button
             onClick={() => setVerMetricas(true)}

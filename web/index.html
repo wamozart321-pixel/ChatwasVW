@@ -10,7 +10,35 @@
     />
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="apple-touch-icon" href="/icono-192.png" />
+    <meta name="theme-color" content="#ffffff" />
     <title>WhatsWV</title>
+
+    <!--
+      El tema se decide antes de que cargue React, no después: si esperara al
+      primer render, el que tiene la bandeja en oscuro vería un destello blanco
+      en cada arranque. Son cuatro líneas acá para no pagar eso.
+
+      La clave y la clase son las mismas que usa src/tema.ts.
+    -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('whatswv:tema') || 'automatico';
+          var oscuro =
+            t === 'oscuro' ||
+            (t === 'automatico' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (oscuro) {
+            document.documentElement.classList.add('oscuro');
+            document
+              .querySelector('meta[name="theme-color"]')
+              .setAttribute('content', '#111a2b');
+          }
+        } catch (e) {
+          /* sin localStorage: queda en claro */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
