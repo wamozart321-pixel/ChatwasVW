@@ -51,6 +51,27 @@ interface Plantilla {
  */
 const SUGERIDAS: Plantilla[] = [
   {
+    nombre: 'retomar_conversacion',
+    idioma: 'es',
+    categoria: 'UTILITY',
+    paraQue: 'La comodín: sirve para cualquier conversación que se enfrió',
+    cuerpo:
+      'Hola {{1}}, te escribimos de Repuestos Volkswagen Jhon Pardo para continuar con {{2}}. ' +
+      'Quedamos atentos: responde a este mensaje y seguimos donde quedamos.',
+    // {{2}} es el hueco que la vuelve general: ahí entra «tu cotización», «tu
+    // pedido», «la garantía de tu compra» o «lo que hablamos ayer». Las otras
+    // tres nombran el caso en el texto fijo y sólo sirven para ese caso; ésta
+    // no dice de qué se trata hasta que el asesor lo escribe, así que cubre la
+    // conversación que se frenó en cualquier punto.
+    //
+    // Se pide UTILITY pero Meta la pasó a MARKETING, y con razón: para Meta lo
+    // útil habla de algo puntual que el cliente ya pidió, y ésta a propósito no
+    // dice de qué habla. Es el precio de que sirva para todo — cuesta más por
+    // envío que las otras tres.
+    ejemplo: ['Carlos', 'lo que estabas averiguando'],
+    pie: 'Repuestos Volkswagen Jhon Pardo',
+  },
+  {
     nombre: 'seguimiento_consulta',
     idioma: 'es',
     categoria: 'UTILITY',
@@ -157,8 +178,12 @@ async function crear(p: Plantilla) {
 
   if (!ok) {
     const e = cuerpo?.error ?? {};
-    // 2388023 = ya existe una con ese nombre e idioma.
-    if (e.error_subcode === 2388023 || String(e.message ?? '').includes('already exists')) {
+    // 2388023 = ya existe una con ese nombre e idioma. Meta lo dice de varias
+    // formas segun el idioma de la cuenta: «already exists» en ingles y «Ya
+    // existe contenido en Spanish» en espanol. Las tres son la misma cosa y no
+    // son un error: es que la plantilla ya estaba creada.
+    const texto = `${e.error_user_msg ?? ''} ${e.message ?? ''}`.toLowerCase();
+    if (e.error_subcode === 2388023 || texto.includes('already exists') || texto.includes('ya existe')) {
       console.log(`  ya existía   ${p.nombre}`);
       return;
     }
