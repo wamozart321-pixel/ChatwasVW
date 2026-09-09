@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Mensaje, UbicacionNegocio } from '../api';
 import EnviarUbicacion from './EnviarUbicacion';
 import GrabarAudio from './GrabarAudio';
+import MensajesRapidos from './MensajesRapidos';
+import { buscarRapidos, resolverRapido, type MensajeRapido } from './mensajes-rapidos';
 
 /** Un mensaje sin texto —una foto, una nota de voz— resumido en una linea. */
 const SIN_TEXTO: Record<string, string> = {
@@ -47,6 +49,8 @@ export default function Redactor({
   onDejarDeEscribir,
   respondiendoA,
   onCancelarRespuesta,
+  nombreContacto,
+  nombreAsesor,
 }: {
   ventanaAbierta: boolean;
   ventanaVence: string | null;
@@ -68,11 +72,20 @@ export default function Redactor({
   /** El mensaje que se esta respondiendo, si hay alguno. */
   respondiendoA: Mensaje | null;
   onCancelarRespuesta: () => void;
+  /** Para el hueco {nombre} de los mensajes rapidos. */
+  nombreContacto: string | null;
+  /** Para el hueco {asesor} de los mensajes rapidos. */
+  nombreAsesor: string;
 }) {
   const [texto, setTexto] = useState('');
   const [verUbicacion, setVerUbicacion] = useState(false);
   const [grabando, setGrabando] = useState(false);
   const [verCamara, setVerCamara] = useState(false);
+  // Abierto a mano con el boton, sobre un mensaje ya empezado.
+  const [rapidosAMano, setRapidosAMano] = useState(false);
+  // Se cerro con Esc: no reabrir hasta que el texto deje de ser un atajo.
+  const [rapidosCerrados, setRapidosCerrados] = useState(false);
+  const [rapidoIndice, setRapidoIndice] = useState(0);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const archivoRef = useRef<HTMLInputElement>(null);
   const fotoRef = useRef<HTMLInputElement>(null);
@@ -86,6 +99,61 @@ export default function Redactor({
     el.style.height = Math.min(el.scrollHeight, 140) + 'px';
   }, [texto]);
 
+  /*
+    Los mensajes rapidos viven mientras el mensaje entero sea el atajo: «/env».
+    Con un salto de linea ya es un texto que empieza con barra, no un atajo, y
+    la lista estorba. Los textos estan en mensajes-rapidos.ts.
+  */
+  const porBarra = !rapidosCerrados && texto.startsWith('/') && !texto.includes('\n');
+  const filtroRapido = porBarra ? texto.slice(1) : rapidosAMano ? '' : null;
+  const rapidos = useMemo(
+    () => (filtroRapido === null ? [] : buscarRapidos(filtroRapido)),
+    [filtroRapido],
+  );
+  const verRapidos = rapidos.length > 0;
+  // Al filtrar, la lista se acorta y el resaltado puede quedar afuera.
+  const indiceRapido = Math.min(rapidoIndice, Math.max(rapidos.length - 1, 0));
+
+  function cerrarRapidos() {
+    setRapidosAMano(false);
+    setRapidosCerrados(true);
+  }
+
+  function abrirRapidos() {
+    setRapidosCerrados(false);
+    setRapidoIndice(0);
+    // Con el campo vacio se abre como si hubieran tecleado la barra, y asi se
+    // puede seguir filtrando escribiendo. Con algo escrito se abre para el
+    // mouse: filtrar ahi borraria lo que el asesor ya redacto.
+    if (!texto.trim()) {
+      setTexto('/');
+      requestAnimationFrame(() => areaRef.current?.focus());
+    } else {
+      setRapidosAMano(true);
+    }
+  }
+
+  function elegirRapido(m: MensajeRapido) {
+    const listo = resolverRapido(m.texto, { contacto: nombreContacto, asesor: nombreAsesor });
+    // Tecleado con «/», el atajo se reemplaza. Abierto con el boton sobre algo
+    // ya escrito, el mensaje se suma debajo en vez de borrar lo que habia.
+    const base = porBarra || !texto.trim() ? '' : texto.trimEnd() + '\n';
+
+    setTexto(base + listo);
+    setRapidosAMano(false);
+    setRapidosCerrados(true);
+    onEscribiendo();
+
+    // El foco vuelve al campo con el cursor al final: casi siempre hay algo que
+    // agregarle al mensaje rapido antes de mandarlo.
+    requestAnimationFrame(() => {
+      const el = areaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  }
+
   function enviar() {
     const limpio = texto.trim();
     if (!limpio || enviando) return;
@@ -96,6 +164,12 @@ export default function Redactor({
 
   function alTipear(valor: string) {
     setTexto(valor);
+    // El candado del Esc se suelta solo apenas el texto deja de ser un atajo,
+    // asi que volver a teclear «/» vuelve a abrir la lista.
+    if (!valor.startsWith('/')) setRapidosCerrados(false);
+    // Escribir es redactar: la lista abierta a mano se corre del camino.
+    setRapidosAMano(false);
+    setRapidoIndice(0);
     // El servidor expira el aviso solo; aca solo hace falta refrescarlo.
     if (valor.trim()) onEscribiendo();
     else onDejarDeEscribir();
@@ -176,7 +250,20 @@ export default function Redactor({
         `md:contents` deshace el envoltorio y todo vuelve a una fila, como
         estaba.
       */
-      <div className="flex flex-col gap-2 md:flex-row md:items-end">
+      <div className="relative flex flex-col gap-2 md:flex-row md:items-end">
+        {verRapidos && (
+          <MensajesRapidos
+            opciones={rapidos}
+            indice={indiceRapido}
+            onElegir={elegirRapido}
+            onResaltar={setRapidoIndice}
+            onCerrar={cerrarRapidos}
+            vistaPrevia={(t) =>
+              resolverRapido(t, { contacto: nombreContacto, asesor: nombreAsesor })
+            }
+          />
+        )}
+
         <div className="order-2 flex items-center gap-2 md:contents">
           <input
             ref={archivoRef}
@@ -286,6 +373,21 @@ export default function Redactor({
             🎤
           </button>
 
+          {/* El atajo es «/», pero eso no se descubre solo: el botón está para
+              que el que no lo sabe igual llegue a los mensajes rápidos. */}
+          <button
+            onClick={abrirRapidos}
+            disabled={enviando}
+            title="Mensajes rápidos (o escribí / en el campo)"
+            className={`mb-0.5 rounded-xl border px-3 py-2.5 transition disabled:opacity-40 ${
+              verRapidos
+                ? 'border-marca-100 bg-marca-50 text-marca-700'
+                : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+            }`}
+          >
+            ⚡
+          </button>
+
           {/* El mapa va en un modal a pantalla completa: en un globito de 300 px
               no se puede elegir un punto de una ciudad. */}
           {verUbicacion && (
@@ -314,6 +416,33 @@ export default function Redactor({
           value={texto}
           onChange={(e) => alTipear(e.target.value)}
           onKeyDown={(e) => {
+            // Con la lista abierta las teclas son de la lista: Enter elige el
+            // mensaje rapido, no manda «/env» por WhatsApp.
+            if (verRapidos) {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setRapidoIndice((i) => (Math.min(i, rapidos.length - 1) + 1) % rapidos.length);
+                return;
+              }
+              if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setRapidoIndice(
+                  (i) => (Math.min(i, rapidos.length - 1) - 1 + rapidos.length) % rapidos.length,
+                );
+                return;
+              }
+              if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                elegirRapido(rapidos[indiceRapido]);
+                return;
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                cerrarRapidos();
+                return;
+              }
+            }
+
             // Enter envia, Shift+Enter hace salto de linea: como WhatsApp.
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();

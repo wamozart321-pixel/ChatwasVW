@@ -39,6 +39,7 @@ dos contesten lo mismo, y todo en tiempo real. Los cuatro pasos están completos
 - Fotos, audios, videos y documentos: se reciben, se guardan y se envían.
 - Vista previa antes de enviar un archivo, y visor a pantalla completa para verlo.
 - Plantillas sincronizadas de Meta, con variables y vista previa antes de mandar.
+- Mensajes rápidos: se abren con «/» en el redactor y entran al campo para retocarlos.
 - Notas internas intercaladas en el hilo, que el cliente nunca ve.
 - Etiquetas por conversación, visibles en la lista y usables como filtro.
 - Métricas por asesor y estado de la cola en vivo, con desglose: cada número se
@@ -502,6 +503,19 @@ bandeja; el botón «Sincronizar con Meta» del selector las trae.
 Reglas de Meta que conviene tener a mano: el cuerpo no puede empezar ni terminar en
 variable, ni llevar dos seguidas, y toda plantilla con variables necesita valores de
 ejemplo para que puedan revisarla.
+
+**Los mensajes rápidos no pasan por Meta.** Son texto libre que sale por la ventana
+de 24 h, así que se editan en el código y listo: [`web/src/componentes/mensajes-rapidos.ts`](web/src/componentes/mensajes-rapidos.ts).
+Cada uno es un `atajo` —lo que se teclea después de la barra— y un `texto`, que
+puede llevar dos huecos: `{nombre}` (el nombre de pila del cliente) y `{asesor}`.
+
+En la bandeja se abren tecleando `/` al principio del mensaje o con el botón ⚡. Se
+filtran siguiendo lo que se escribe, se recorren con ↑↓ y se eligen con Enter. El
+texto **cae en el redactor, no se envía solo**: casi siempre hay algo que ajustarle,
+y un mensaje que ya salió por WhatsApp no se corrige.
+
+No confundirlos con las plantillas: el mensaje rápido sirve mientras la ventana de
+24 h esté abierta; pasada la ventana, sólo entra una plantilla aprobada.
 
 Las plantillas con **archivo en el encabezado** (imagen, video o documento) todavía
 no están soportadas: el selector las muestra pero avisa. Las de sólo texto, con o

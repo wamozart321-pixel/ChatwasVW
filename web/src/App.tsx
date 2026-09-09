@@ -803,6 +803,8 @@ export default function App() {
                 ubicacionNegocio={ubicacionNegocio}
                 respondiendoA={respondiendoA}
                 onCancelarRespuesta={() => setRespondiendoA(null)}
+                nombreContacto={actual.contacto}
+                nombreAsesor={asesor.nombre}
                 onEscribiendo={() => socketRef.current?.emit('escribiendo', seleccionada)}
                 onDejarDeEscribir={() =>
                   socketRef.current?.emit('dejar-de-escribir', seleccionada)
