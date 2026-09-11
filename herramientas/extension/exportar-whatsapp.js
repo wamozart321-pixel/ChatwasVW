@@ -426,6 +426,112 @@
     return Number.isFinite(n) && n > 0 ? n : 0;
   }
 
+  /*
+   * Lo que queda en la carpeta mientras trabaja, para poder retomar.
+   *
+   * El JSON y el CSV se escriben al final, y eso esta bien cuando son cien chats:
+   * si algo se corta, se vuelve a empezar y listo. A cinco mil chats no: una
+   * corrida de horas que se cae en el chat cuatro mil no deja NADA que importar,
+   * y eso es inaceptable.
+   *
+   * Asi que cada chat terminado se escribe en el momento, una linea por chat
+   * (.jsonl). Esa linea ya es importable tal cual: el importador lee el .jsonl
+   * igual que el .json, asi que incluso una exportacion cortada a la mitad entra
+   * completa hasta donde llego.
+   *
+   * Al lado va el progreso: que chats ya salieron y con que filtros. Al volver a
+   * pulsar se saltean —sin pedirle el historial al celular otra vez, que es lo que
+   * tarda— y sus mensajes se releen del .jsonl para que el archivo final salga
+   * completo, no solo con lo de esta vuelta.
+   */
+  const ARCHIVO_LINEAS = 'whatswv-chats.jsonl';
+  const ARCHIVO_PROGRESO = 'whatswv-progreso.json';
+
+  async function leerTexto(carpeta, nombre) {
+    if (!carpeta) return '';
+    try {
+      const handle = await carpeta.getFileHandle(nombre);
+      return await (await handle.getFile()).text();
+    } catch {
+      return '';
+    }
+  }
+
+  async function escribirTexto(carpeta, nombre, texto) {
+    if (!carpeta) return;
+    const handle = await carpeta.getFileHandle(nombre, { create: true });
+    const escritor = await handle.createWritable();
+    await escritor.write(texto);
+    await escritor.close();
+  }
+
+  /**
+   * Agrega una linea al final, sin releer el archivo.
+   *
+   * `keepExistingData` mas la posicion es la unica forma de anexar con esta API:
+   * sin eso, cada escritura deja el archivo con una sola linea y se pierde todo
+   * lo anterior.
+   */
+  async function agregarLinea(carpeta, nombre, linea) {
+    if (!carpeta) return;
+
+    const handle = await carpeta.getFileHandle(nombre, { create: true });
+    const largo = (await handle.getFile()).size;
+    const escritor = await handle.createWritable({ keepExistingData: true });
+    await escritor.write({ type: 'write', position: largo, data: linea + String.fromCharCode(10) });
+    await escritor.close();
+  }
+
+  /** Los filtros con los que se hizo una corrida, para saber si se puede retomar. */
+  function huellaDeOpciones(opciones) {
+    return [
+      opciones.desde ?? 0,
+      opciones.porChat,
+      opciones.soloGuardados ? 1 : 0,
+      opciones.archivos ? 1 : 0,
+    ].join('|');
+  }
+
+  /**
+   * Lo que dejo la corrida anterior en esta carpeta.
+   *
+   * Si los filtros no son los mismos se empieza de nuevo: con otra fecha o otro
+   * tope por chat, las lineas viejas no corresponden a lo que se esta pidiendo
+   * ahora, y mezclarlas daria un archivo que no es ni lo uno ni lo otro.
+   */
+  async function retomar(carpeta, opciones, avisar) {
+    const vacio = { hechos: new Set(), chats: [], omitidos: [] };
+    if (!carpeta) return vacio;
+
+    let progreso = null;
+    try {
+      progreso = JSON.parse(await leerTexto(carpeta, ARCHIVO_PROGRESO) || 'null');
+    } catch {
+      progreso = null;
+    }
+
+    if (!progreso?.hechos?.length) return vacio;
+
+    if (progreso.opciones !== huellaDeOpciones(opciones)) {
+      avisar('Los filtros cambiaron: empiezo de nuevo en esta carpeta.');
+      return vacio;
+    }
+
+    const chats = [];
+    for (const linea of (await leerTexto(carpeta, ARCHIVO_LINEAS)).split(String.fromCharCode(10))) {
+      if (!linea.trim()) continue;
+      try {
+        chats.push(JSON.parse(linea));
+      } catch {
+        // Una linea a medio escribir —se corto la luz justo ahi— se descarta: el
+        // chat vuelve a pedirse, que es mejor que importar media conversacion.
+      }
+    }
+
+    avisar(`Retomo: ${progreso.hechos.length} chats ya estaban en la carpeta.`);
+    return { hechos: new Set(progreso.hechos), chats, omitidos: progreso.omitidos ?? [] };
+  }
+
   /**
    * El peso del archivo que ya este en la carpeta, o 0 si no esta.
    *
@@ -449,17 +555,20 @@
   }
 
   /**
-   * Pide la carpeta donde dejar los archivos.
+   * Pide la carpeta donde dejar los archivos y el avance.
    *
    * Tiene que correr con el gesto del usuario todavia fresco —el clic del boton—,
-   * asi que se llama antes de cualquier espera. Si el asesor cancela, se exporta
-   * el texto y nada mas: caer en cientos de descargas sueltas porque cerro un
-   * dialogo no es lo que pidio.
+   * asi que se llama antes de cualquier espera.
+   *
+   * Si cancela y habia pedido archivos, se exporta el texto y nada mas: caer en
+   * cientos de descargas sueltas porque cerro un dialogo no es lo que pidio. Si la
+   * carpeta era solo para ir guardando el avance, se sigue igual, avisando que un
+   * corte costaria la corrida entera.
    */
-  async function pedirCarpeta(avisar) {
+  async function pedirCarpeta(avisar, paraArchivos) {
     if (!window.showDirectoryPicker) {
-      avisar('Este navegador no deja elegir carpeta: los archivos van a Descargas.');
-      return { carpeta: null, archivos: true };
+      if (paraArchivos) avisar('Este navegador no deja elegir carpeta: los archivos van a Descargas.');
+      return { carpeta: null, archivos: paraArchivos };
     }
 
     try {
@@ -467,9 +576,13 @@
         id: 'whatswv-archivos',
         mode: 'readwrite',
       });
-      return { carpeta, archivos: true };
+      return { carpeta, archivos: paraArchivos };
     } catch {
-      avisar('Sin carpeta: exporto solo el texto.');
+      avisar(
+        paraArchivos
+          ? 'Sin carpeta: exporto solo el texto.'
+          : 'Sin carpeta: si se corta, hay que empezar de nuevo.',
+      );
       return { carpeta: null, archivos: false };
     }
   }
@@ -891,7 +1004,36 @@
       console.log('[whatswv] chat.list vacio; uso ChatStore:', chats.length);
     }
 
+    /*
+     * Lo de la corrida anterior entra como si se hubiera pedido ahora.
+     *
+     * Asi el resto del codigo no se entera de que hubo un corte: los mensajes
+     * viejos se deduplican con los nuevos por la misma huella, y el JSON final
+     * sale completo en vez de traer solo lo de esta vuelta.
+     */
+    const antes = await retomar(opciones.carpeta, opciones, avisar);
+    const hechos = antes.hechos;
+
     const salida = [];
+    let rehechos = 0;
+
+    for (const chat of antes.chats) {
+      for (const m of chat.mensajes ?? []) {
+        const segundos = Math.floor(new Date(m.cuando).getTime() / 1000);
+        if (!Number.isFinite(segundos)) continue;
+        salida.push({
+          telefono: chat.telefono,
+          mio: m.mio === true,
+          segundos,
+          texto: m.texto ?? '',
+          opaco: null,
+          clase: m.archivo?.clase ?? null,
+          archivo: m.archivo ?? null,
+        });
+      }
+      rehechos++;
+    }
+
     let conTelefono = 0;
     let fallaron = 0;
     let bajados = 0;
@@ -908,7 +1050,7 @@
      * mismo que "comprobado". Al migrar un negocio hay que poder mirar la lista
      * y confirmar que ningun cliente se quedo por fuera.
      */
-    const omitidos = [];
+    const omitidos = [...(antes.omitidos ?? [])];
 
     for (const [i, chat] of chats.entries()) {
       const id = comoTexto(chat?.id) || '(sin id)';
@@ -936,6 +1078,11 @@
       }
 
       conTelefono++;
+
+      // Lo que ya salio no se vuelve a pedir. Saltarlo ACA y no despues es lo que
+      // hace que retomar sea rapido: lo que tarda es el getMessages, no el resto.
+      if (hechos.has(comoTexto(chat.id))) continue;
+
       avisar(`pidiendo historial ${i + 1} de ${chats.length} (+${telefono})…`);
 
       let mensajes = [];
@@ -951,6 +1098,7 @@
       }
 
       let conTexto = 0;
+      const delChat = [];
 
       for (const [j, m] of mensajes.entries()) {
         const segundos = cuandoDe(m);
@@ -1062,6 +1210,48 @@
 
         conTexto++;
         salida.push({ telefono, mio, segundos, texto, opaco: null, clase, archivo });
+        delChat.push({
+          cuando: new Date(segundos * 1000).toISOString(),
+          mio,
+          texto,
+          ...(archivo ? { archivo } : {}),
+        });
+      }
+
+      /*
+       * El chat queda escrito antes de pasar al siguiente.
+       *
+       * Esta linea ya es importable: si la exportacion se corta en el chat
+       * siguiente, lo de este no se pierde. Es la diferencia entre perder una hora
+       * y perder la noche.
+       */
+      if (opciones.carpeta) {
+        delChat.sort((a, b) => a.cuando.localeCompare(b.cuando));
+
+        if (delChat.length) {
+          await agregarLinea(
+            opciones.carpeta,
+            ARCHIVO_LINEAS,
+            JSON.stringify({ telefono, nombre: nombreChat || null, mensajes: delChat }),
+          );
+        }
+
+        hechos.add(comoTexto(chat.id));
+        await escribirTexto(
+          opciones.carpeta,
+          ARCHIVO_PROGRESO,
+          JSON.stringify(
+            {
+              cuando: new Date().toISOString(),
+              opciones: huellaDeOpciones(opciones),
+              chats: chats.length,
+              hechos: [...hechos],
+              omitidos,
+            },
+            null,
+            1,
+          ),
+        );
       }
 
       if (conTexto === 0) {
@@ -1080,6 +1270,7 @@
       (fallaron ? `, ${fallaron} sin respuesta del celular` : '') +
       (omitidos.length ? `, ${omitidos.length} omitidos` : '') +
       (bajados ? `, ${bajados} archivos (${Math.round(bytes / 1048576)} MB)` : '') +
+      (rehechos ? `, ${rehechos} chats venian de la corrida anterior` : '') +
       (reusados ? `, ${reusados} archivos ya estaban` : '') +
       (sinBajar ? `, ${sinBajar} archivos no llegaron` : '') +
       (grandes ? `, ${grandes} archivos pasados de 16 MB` : '');
@@ -1762,9 +1953,21 @@
        * El navegador solo abre el selector de carpeta con el gesto del usuario
        * todavia fresco; despues del primer await ya lo considera vencido y
        * rechaza el dialogo.
+       *
+       * Se pide tambien sin archivos cuando hay muchos chats: ahi la carpeta es
+       * donde se va guardando el avance. Con cien chats no hace falta —si se
+       * corta, se vuelve a correr y son dos minutos—, pero de unos cientos para
+       * arriba la corrida es de horas y perderla entera por un corte no es una
+       * opcion.
        */
-      if (op.archivos) {
-        const elegida = await pedirCarpeta(av);
+      const cuantos = modelosDe(waJs()?.whatsapp?.ChatStore).length;
+
+      if (op.archivos || cuantos > 300) {
+        if (!op.archivos) {
+          av(`Son ${cuantos} chats: elegí una carpeta para ir guardando el avance.`);
+        }
+
+        const elegida = await pedirCarpeta(av, op.archivos);
         op.carpeta = elegida.carpeta;
         op.archivos = elegida.archivos;
       }

@@ -68,10 +68,23 @@ Después:
 - Con los archivos marcados, además, la carpeta elegida queda con un archivo por
   mensaje, nombrado `telefono-segundo-n.ext`.
 
-**Si se corta, se vuelve a pulsar y elige la misma carpeta.** Lo que ya esté
-bajado no se vuelve a pedir —los nombres son calculados—, así que la segunda
-pasada arranca donde quedó la primera. Con cien chats da igual; con cinco mil es
-la diferencia entre retomar y empezar de cero.
+**Si se corta, se vuelve a pulsar y elige la misma carpeta.** En ella el panel va
+dejando, chat por chat y a medida que avanza:
+
+- `whatswv-chats.jsonl` — una línea por chat terminado. **Esto ya es importable
+  tal cual**, así que una exportación cortada en el chat 400 no se pierde: entra
+  completa hasta donde llegó.
+- `whatswv-progreso.json` — qué chats ya salieron y con qué filtros.
+
+Al volver a pulsar, esos chats se saltean sin volver a preguntarle al celular —que
+es lo que tarda—, y sus mensajes se releen del `.jsonl` para que el archivo final
+salga completo y no sólo con lo de la última vuelta. Si se cambian los filtros
+—otra fecha, otro tope por chat— empieza de nuevo y avisa: las líneas viejas ya no
+corresponden a lo que se está pidiendo.
+
+Por eso, **de 300 chats para arriba pide la carpeta aunque no se marquen los
+archivos**: ahí una corrida es de horas y perderla entera por un corte no es una
+opción.
 
 Dos archivos que el panel salta a propósito, y los cuenta al final:
 
@@ -110,8 +123,17 @@ encontró —nombres de campos y cantidades, nunca contenido de mensajes—.
 
 ```
 npm run importar -- contactos ~/Downloads/whatswv-contactos.csv
-npm run importar -- mensajes  ~/Downloads/whatswv-chats.json
-npm run importar -- mensajes  ~/Downloads/whatswv-chats.json --archivos ~/Downloads/archivos-wa
+npm run importar -- mensajes  ~/Downloads/archivos-wa
+```
+
+Pasándole **la carpeta** alcanza: busca adentro el `whatswv-chats.jsonl` (o el
+`.json`) y toma los archivos de ahí mismo. El mismo teléfono en dos líneas —una
+corrida que se cortó y se retomó— se junta en una sola conversación.
+
+También sirven los archivos sueltos, y ahí la carpeta va aparte:
+
+```
+npm run importar -- mensajes ~/Downloads/whatswv-chats.json --archivos ~/Downloads/archivos-wa
 ```
 
 Sin `--archivos` entra sólo el texto, y el importador avisa cuántos archivos se

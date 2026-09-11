@@ -3,6 +3,7 @@
  *
  *   npm run importar -- contactos clientes.csv
  *   npm run importar -- mensajes chats.json
+ *   npm run importar -- mensajes carpeta-del-exportador/
  *   npm run importar -- chats carpeta-de-exportaciones/ --yo "Repuestos VW"
  *
  * Sin `--de-verdad` sólo dice qué haría. Es a propósito: un archivo mal armado
@@ -31,6 +32,10 @@
  * del archivo de cada mensaje y la carpeta se pasa aparte:
  *
  *   npm run importar -- mensajes chats.json --archivos ~/Downloads/whatswv-archivos
+ *
+ * O se le pasa la carpeta del exportador y se arregla solo: adentro están el
+ * `whatswv-chats.jsonl` —el que va escribiendo chat por chat, y que sirve aunque
+ * la exportación se haya cortado— y los archivos.
  *
  * Los archivos se copian al almacén de la bandeja con la misma estructura que usa
  * el servidor —año/mes/uuid.ext—, y el mensaje queda apuntando ahí. Con
@@ -514,11 +519,96 @@ interface ChatExportado {
   }[];
 }
 
+/**
+ * Los chats de una exportación, venga como venga.
+ *
+ * Tres formas, porque el exportador deja tres:
+ *
+ *   - `whatswv-chats.json`, el archivo completo que escribe al terminar.
+ *   - `whatswv-chats.jsonl`, una línea por chat, que va escribiendo a medida que
+ *     avanza. Este es el que sirve cuando la exportación se cortó a la mitad: lo
+ *     que alcanzó a salir está entero, chat por chat.
+ *   - la carpeta donde dejó todo: se busca adentro, y los archivos salen de ahí
+ *     mismo sin tener que pasar `--archivos`.
+ *
+ * Una línea a medio escribir se descarta con un aviso: es lo que queda si se cortó
+ * la luz justo ahí, y media conversación importada en silencio es peor que una que
+ * falta y se sabe.
+ */
+function leerExportacion(ruta: string): { chats: ChatExportado[]; archivosPorDefecto: string | null } {
+  if (statSync(ruta).isDirectory()) {
+    const conLineas = join(ruta, 'whatswv-chats.jsonl');
+    const completo = join(ruta, 'whatswv-chats.json');
+    const dentro = existsSync(conLineas) ? conLineas : existsSync(completo) ? completo : null;
+
+    if (!dentro) {
+      console.error(`\n  en ${ruta} no hay whatswv-chats.jsonl ni whatswv-chats.json\n`);
+      process.exit(1);
+    }
+
+    console.log(`\n  leyendo ${basename(dentro)} de la carpeta`);
+    return { chats: leerExportacion(dentro).chats, archivosPorDefecto: ruta };
+  }
+
+  const texto = readFileSync(ruta, 'utf8');
+
+  if (ruta.toLowerCase().endsWith('.jsonl')) {
+    const chats: ChatExportado[] = [];
+    let rotas = 0;
+
+    for (const linea of texto.split(/\r?\n/)) {
+      if (!linea.trim()) continue;
+      try {
+        chats.push(JSON.parse(linea) as ChatExportado);
+      } catch {
+        rotas++;
+      }
+    }
+
+    if (rotas) {
+      console.log(`  ${rotas} línea${rotas > 1 ? "s" : ""} quedó a medio escribir: se descarta`);
+    }
+    return { chats, archivosPorDefecto: null };
+  }
+
+  const crudo: unknown = JSON.parse(texto);
+  return {
+    chats: Array.isArray(crudo)
+      ? (crudo as ChatExportado[])
+      : ((crudo as { chats?: ChatExportado[] }).chats ?? []),
+    archivosPorDefecto: null,
+  };
+}
+
+/**
+ * Junta los chats repetidos.
+ *
+ * El .jsonl puede traer el mismo teléfono dos veces: una corrida que se cortó y se
+ * retomó escribe su línea, y la conversación siguió. Los mensajes se pegan y los
+ * repetidos los absorbe el `wa_message_id`, que sale del contenido.
+ */
+function juntarPorTelefono(chats: ChatExportado[]): ChatExportado[] {
+  const porTelefono = new Map<string, ChatExportado>();
+
+  for (const chat of chats) {
+    const clave = aE164(chat.telefono ?? '');
+    const ya = porTelefono.get(clave);
+
+    if (!ya) {
+      porTelefono.set(clave, { ...chat, mensajes: [...(chat.mensajes ?? [])] });
+      continue;
+    }
+
+    ya.nombre = ya.nombre ?? chat.nombre;
+    ya.mensajes = [...(ya.mensajes ?? []), ...(chat.mensajes ?? [])];
+  }
+
+  return [...porTelefono.values()];
+}
+
 async function importarMensajes(archivo: string) {
-  const crudo: unknown = JSON.parse(readFileSync(archivo, 'utf8'));
-  const chats: ChatExportado[] = Array.isArray(crudo)
-    ? (crudo as ChatExportado[])
-    : ((crudo as { chats?: ChatExportado[] }).chats ?? []);
+  const leido = leerExportacion(archivo);
+  const chats = juntarPorTelefono(leido.chats);
 
   const pedidos = chats.reduce(
     (n, c) => n + (c.mensajes ?? []).filter((m) => m.archivo?.nombre).length,
@@ -533,7 +623,7 @@ async function importarMensajes(archivo: string) {
    * que importar el historial y volver a correrlo con la carpeta después —el
    * segundo pase no duplica nada—.
    */
-  const origen = opcion('archivos');
+  const origen = opcion('archivos') ?? leido.archivosPorDefecto ?? undefined;
   const almacen = carpetaDelAlmacen();
   const archivos = origen ? { origen, raiz: almacen.raiz } : null;
 
