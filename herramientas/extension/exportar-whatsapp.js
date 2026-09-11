@@ -390,6 +390,64 @@
     await escritor.close();
   }
 
+  /** Lo que se espera por un archivo antes de darlo por perdido. */
+  const TOPE_ESPERA = 45_000;
+
+  /** Mas grande que esto no se pide: ver POR QUE abajo. */
+  const TOPE_BYTES = 16 * 1024 * 1024;
+
+  /**
+   * Espera algo con tope de tiempo.
+   *
+   * `downloadMedia` le pide al celular la media que este computador no tiene, y
+   * eso puede no volver NUNCA: el celular sin datos, en otra red, o WhatsApp que
+   * ya no guarda ese archivo. Sin tope, una sola foto congela la exportacion
+   * entera — y con cinco mil chats eso es perder horas de trabajo por un archivo
+   * que al final no importaba.
+   *
+   * El archivo que no llega se cuenta y se sigue. Reexportar despues lo reintenta,
+   * porque los nombres son calculados y lo que ya salio no se vuelve a bajar.
+   */
+  function conTope(promesa, ms, que) {
+    let reloj;
+    const tope = new Promise((_, falla) => {
+      reloj = setTimeout(
+        () => falla(new Error('no llego en ' + Math.round(ms / 1000) + ' s (' + que + ')')),
+        ms,
+      );
+    });
+
+    return Promise.race([promesa, tope]).finally(() => clearTimeout(reloj));
+  }
+
+  /** El peso del archivo de un mensaje, si el modelo lo dice. */
+  function tamanoDe(fila) {
+    const n = Number(fila?.size ?? fila?.mediaData?.fullFileSize ?? fila?.filehash?.size ?? 0);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+
+  /**
+   * El peso del archivo que ya este en la carpeta, o 0 si no esta.
+   *
+   * Esto es lo que hace que reintentar sirva. Los nombres son calculados, asi que
+   * al volver a correr la exportacion despues de un corte —una foto que no llego,
+   * WhatsApp Web desconectado, el computador dormido— lo que ya se bajo no se
+   * vuelve a pedir: la segunda pasada arranca donde quedo la primera, y a cinco
+   * mil chats esa es la diferencia entre retomar y empezar de cero.
+   */
+  async function pesoSiYaEsta(carpeta, nombre) {
+    if (!carpeta || !nombre) return 0;
+
+    try {
+      const handle = await carpeta.getFileHandle(nombre);
+      const archivo = await handle.getFile();
+      return archivo.size > 0 ? archivo.size : 0;
+    } catch {
+      // No esta, o la carpeta ya no deja mirar: se baja igual.
+      return 0;
+    }
+  }
+
   /**
    * Pide la carpeta donde dejar los archivos.
    *
@@ -706,7 +764,12 @@
     // fallo la busqueda, los telefonos o el celular.
     if (salida.length === 0) avisar(`0 chats. ${waJsDio.nota}`);
 
-    return { chats: salida.length, archivos: waJsDio.bajados ?? 0, sinBajar: waJsDio.sinBajar ?? 0 };
+    return {
+      chats: salida.length,
+      archivos: waJsDio.bajados ?? 0,
+      sinBajar: waJsDio.sinBajar ?? 0,
+      grandes: waJsDio.grandes ?? 0,
+    };
   }
 
 
@@ -833,6 +896,8 @@
     let fallaron = 0;
     let bajados = 0;
     let sinBajar = 0;
+    let grandes = 0;
+    let reusados = 0;
     let bytes = 0;
 
     /*
@@ -912,33 +977,82 @@
          * pie de foto, y al final el panel dice cuantos quedaron sin archivo.
          */
         let archivo = null;
+        const tamano = tamanoDe(m);
 
-        if (clase && opciones.archivos) {
-          try {
-            const blob = await wpp.chat.downloadMedia(comoTexto(m.id) || m.id);
-            const mime = (blob?.type || m?.mimetype || '').split(';')[0];
-            // Nombre calculado, no al azar: reexportar sobre la misma carpeta
-            // reescribe el mismo archivo en vez de dejar copias.
-            const nombre = telefono + '-' + segundos + '-' + j + '.' + extensionDe(mime, m?.filename);
+        /*
+         * POR QUE se saltan los pesados.
+         *
+         * Un video de 40 MB no entra en la bandeja —el tope es MEDIA_MAX_MB, 16 por
+         * defecto, que es el maximo que acepta WhatsApp— asi que bajarlo es media
+         * hora de espera para un archivo que despues no se puede ni reenviar. Se
+         * cuenta y queda dicho al final.
+         */
+        if (clase && opciones.archivos && tamano > TOPE_BYTES) {
+          grandes++;
+          console.warn(
+            '[whatswv] salto ' + clase + ' de ' + Math.round(tamano / 1048576) + ' MB de ' + telefono,
+          );
+        } else if (clase && opciones.archivos) {
+          /*
+           * El nombre se puede calcular antes de bajar nada: el modelo ya dice el
+           * mime. Sirve para preguntarle a la carpeta si ese archivo ya esta, y
+           * saltarse la descarga. Si el modelo no trae mime se baja y se nombra
+           * despues, como siempre.
+           */
+          const mimeDicho = String(m?.mimetype ?? '').split(';')[0].trim();
+          const nombreDicho = mimeDicho
+            ? telefono + '-' + segundos + '-' + j + '.' + extensionDe(mimeDicho, m?.filename)
+            : null;
 
-            await escribirArchivo(opciones.carpeta, nombre, blob);
+          const yaEsta = await pesoSiYaEsta(opciones.carpeta, nombreDicho);
 
+          if (yaEsta) {
+            // Entra al JSON igual que si se hubiera bajado ahora: si no, el
+            // importador no sabria que ese mensaje tiene archivo.
             archivo = {
-              nombre,
+              nombre: nombreDicho,
               clase,
-              mime: mime || null,
-              bytes: blob.size ?? null,
+              mime: mimeDicho || null,
+              bytes: yaEsta,
               original: m?.filename ?? null,
             };
-            bajados++;
-            bytes += blob.size ?? 0;
+            reusados++;
+          } else {
+            // El aviso va ANTES de pedirlo, y con el numero de archivo: si se queda
+            // esperando, el panel dice exactamente en que se quedo. Con el aviso
+            // cada diez parecia colgado justo cuando estaba trabajando.
+            avisar(
+              'chat ' + (i + 1) + ' de ' + chats.length + ' · archivo ' + (bajados + sinBajar + 1) +
+                (sinBajar ? ' (' + sinBajar + ' sin bajar)' : ''),
+            );
 
-            if (bajados % 10 === 0) {
-              avisar('pidiendo historial ' + (i + 1) + ' de ' + chats.length + '… (' + bajados + ' archivos)');
+            try {
+              const blob = await conTope(
+                wpp.chat.downloadMedia(comoTexto(m.id) || m.id),
+                TOPE_ESPERA,
+                clase + ' de +' + telefono,
+              );
+
+              const mime = (blob?.type || m?.mimetype || '').split(';')[0];
+              // Nombre calculado, no al azar: reexportar sobre la misma carpeta
+              // reescribe el mismo archivo en vez de dejar copias.
+              const nombre = telefono + '-' + segundos + '-' + j + '.' + extensionDe(mime, m?.filename);
+
+              await escribirArchivo(opciones.carpeta, nombre, blob);
+
+              archivo = {
+                nombre,
+                clase,
+                mime: mime || null,
+                bytes: blob.size ?? null,
+                original: m?.filename ?? null,
+              };
+              bajados++;
+              bytes += blob.size ?? 0;
+            } catch (e) {
+              sinBajar++;
+              console.warn('[whatswv] archivo de ' + telefono + ':', e?.message ?? e);
             }
-          } catch (e) {
-            sinBajar++;
-            console.warn('[whatswv] archivo de ' + telefono + ':', e?.message ?? e);
           }
         }
 
@@ -966,10 +1080,12 @@
       (fallaron ? `, ${fallaron} sin respuesta del celular` : '') +
       (omitidos.length ? `, ${omitidos.length} omitidos` : '') +
       (bajados ? `, ${bajados} archivos (${Math.round(bytes / 1048576)} MB)` : '') +
-      (sinBajar ? `, ${sinBajar} archivos no se pudieron bajar` : '');
+      (reusados ? `, ${reusados} archivos ya estaban` : '') +
+      (sinBajar ? `, ${sinBajar} archivos no llegaron` : '') +
+      (grandes ? `, ${grandes} archivos pasados de 16 MB` : '');
 
     console.log(`[whatswv] WA-JS: ${salida.length} mensajes. ${nota}`);
-    return { mensajes: salida, nota, omitidos, bajados, sinBajar, bytes };
+    return { mensajes: salida, nota, omitidos, bajados, sinBajar, grandes, reusados, bytes };
   }
 
   /** Los nombres que tenga WA-JS, que son los mismos que se ven en pantalla. */
@@ -1658,8 +1774,9 @@
       av(
         `Listo: ${r.chats} chats` +
           (r.archivos ? `, ${r.archivos} archivos` : '') +
-          (r.sinBajar ? ` (${r.sinBajar} sin bajar)` : '') +
-          '. Al final del CSV estan los que no entraron.',
+          (r.sinBajar ? `, ${r.sinBajar} no llegaron` : '') +
+          (r.grandes ? `, ${r.grandes} pasados de 16 MB` : '') +
+          '. Al final del CSV estan los chats que no entraron.',
       );
     });
 

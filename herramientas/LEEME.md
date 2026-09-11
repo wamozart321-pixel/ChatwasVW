@@ -66,8 +66,21 @@ Después:
   Tener el celular encendido y con internet: el panel va diciendo
   `pidiendo historial 34 de 103…`.
 - Con los archivos marcados, además, la carpeta elegida queda con un archivo por
-  mensaje, nombrado `telefono-segundo-n.ext`. Reexportar sobre la misma carpeta
-  reescribe los mismos archivos en vez de dejar copias.
+  mensaje, nombrado `telefono-segundo-n.ext`.
+
+**Si se corta, se vuelve a pulsar y elige la misma carpeta.** Lo que ya esté
+bajado no se vuelve a pedir —los nombres son calculados—, así que la segunda
+pasada arranca donde quedó la primera. Con cien chats da igual; con cinco mil es
+la diferencia entre retomar y empezar de cero.
+
+Dos archivos que el panel salta a propósito, y los cuenta al final:
+
+- **El que no llega en 45 segundos.** Pedirle al celular una foto que ya no tiene
+  puede no volver nunca, y sin ese tope una sola imagen congela la exportación
+  entera. Vuelve a intentarse en la pasada siguiente.
+- **El de más de 16 MB.** Es el tope de WhatsApp y el de la bandeja
+  (`MEDIA_MAX_MB`): bajar un video de 40 MB es media hora de espera por algo que
+  después no se puede ni reenviar.
 
 Si el navegador no deja elegir carpeta, los archivos caen en Descargas de a uno y
 Chrome pregunta una vez si permite varias descargas. Funciona, pero quedan
