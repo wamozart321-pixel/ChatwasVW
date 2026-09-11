@@ -51,14 +51,27 @@ y volver a exportar.
   *Últimos 200* o *50* es mucho más rápido y suele alcanzar.
 - **Sólo contactos guardados** — deja fuera a los desconocidos. En un número de
   trabajo la mitad de los chats son consultas de una sola vez.
+- **Traer fotos, audios y documentos** — apagada por defecto. Al pulsar *Chats*
+  pide una carpeta donde dejarlos y baja el archivo de cada mensaje. **Tarda
+  bastante más**: cada archivo se le pide al celular de a uno, así que lo que en
+  texto es un minuto puede ser media hora. Marcarla también hace que entren los
+  chats de puras fotos, que sin ella quedaban en los omitidos.
 
 Después:
 
 - **Contactos (CSV)** → `whatswv-contactos.csv`, cosa de segundos.
 - **Chats (JSON + CSV)** → `whatswv-chats.json` y `whatswv-chats.csv`, el mismo
   contenido. El importador lee el JSON; el CSV es para abrirlo y revisar qué
-  trajo, una fila por mensaje. Tener el celular encendido y con internet: el
-  panel va diciendo `pidiendo historial 34 de 103…`.
+  trajo, una fila por mensaje —la última columna dice qué archivo le toca—.
+  Tener el celular encendido y con internet: el panel va diciendo
+  `pidiendo historial 34 de 103…`.
+- Con los archivos marcados, además, la carpeta elegida queda con un archivo por
+  mensaje, nombrado `telefono-segundo-n.ext`. Reexportar sobre la misma carpeta
+  reescribe los mismos archivos en vez de dejar copias.
+
+Si el navegador no deja elegir carpeta, los archivos caen en Descargas de a uno y
+Chrome pregunta una vez si permite varias descargas. Funciona, pero quedan
+cientos de archivos sueltos: mejor la carpeta.
 
 Al final de ese mismo CSV, después de un renglón en blanco, va la sección
 **OMITIDOS**: los chats que no entraron y por qué.
@@ -85,7 +98,18 @@ encontró —nombres de campos y cantidades, nunca contenido de mensajes—.
 ```
 npm run importar -- contactos ~/Downloads/whatswv-contactos.csv
 npm run importar -- mensajes  ~/Downloads/whatswv-chats.json
+npm run importar -- mensajes  ~/Downloads/whatswv-chats.json --archivos ~/Downloads/archivos-wa
 ```
+
+Sin `--archivos` entra sólo el texto, y el importador avisa cuántos archivos se
+está dejando afuera. Los que pasa los copia al almacén de la bandeja con la misma
+forma que usa el servidor —`año/mes/uuid.ext`—, y el mensaje queda con su foto o su
+documento como si hubiera llegado por WhatsApp.
+
+Un mensaje que nombra un archivo que no está en la carpeta entra sin él (y se
+cuenta al final): es lo que pasa si el celular se apagó a mitad de la
+exportación. Reexportar y volver a importar lo completa; correrlo dos veces no
+duplica nada ni vuelve a copiar los archivos.
 
 Sin `--de-verdad` sólo dicen qué harían. Revisar y repetir el comando con
 `--de-verdad`. Correrlo dos veces no duplica nada.
@@ -108,8 +132,13 @@ contactos**, que están sin cifrar en la base local del navegador.
 
 ## Lo que hay que saber
 
-- **Es sólo texto.** Las fotos y los audios no viajan; de una foto con pie de
-  texto queda el texto.
+- **Las fotos y los archivos viajan sólo si se marcan.** Sin la casilla es sólo
+  texto, y de una foto con pie queda el pie. Con la casilla viajan la foto, el
+  audio, el video y el documento, y el importador los mete al almacén.
+- **Con `--produccion` hay un paso más.** La base es la del servidor, pero el
+  disco es este: los archivos se copian a `respaldos/almacen-importado` y el
+  importador imprime el `rsync` que los sube a `/opt/whatswv/almacen`. Sin ese
+  paso la bandeja muestra los mensajes con la foto rota.
 - **Lo importado entra como historial, no como conversación viva.** Queda
   resuelto y con la ventana cerrada, porque la ventana de 24 h la abre un
   mensaje real del cliente y no una fila que pongamos nosotros. En cuanto el

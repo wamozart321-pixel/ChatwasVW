@@ -27,6 +27,17 @@
  * MENSAJES: el .json que suelta `herramientas/exportar-whatsapp.js`, que es lo
  * que se corre en WhatsApp Web para sacar los chats sin pagar una extensión.
  *
+ * Si se exportó con «Traer fotos, audios y documentos», el JSON trae el nombre
+ * del archivo de cada mensaje y la carpeta se pasa aparte:
+ *
+ *   npm run importar -- mensajes chats.json --archivos ~/Downloads/whatswv-archivos
+ *
+ * Los archivos se copian al almacén de la bandeja con la misma estructura que usa
+ * el servidor —año/mes/uuid.ext—, y el mensaje queda apuntando ahí. Con
+ * `--produccion` la base es la del servidor pero el disco es este, así que los
+ * archivos se dejan en una carpeta de paso y al final se imprime el comando para
+ * subirlos; sin eso, la bandeja mostraría mensajes con archivos que no existen.
+ *
  * CHATS: la exportación del propio WhatsApp, un `.txt` por conversación.
  * En el celular: abrir el chat -> ⋮ -> Más -> Exportar chat -> Sin archivos.
  *
@@ -42,9 +53,9 @@
  * 24 h: son mensajes viejos, y WhatsApp cuenta el tiempo desde que el cliente
  * escribe de verdad. Sirve para consultar el historial, no para responderlo.
  */
-import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { basename, join, sep } from 'node:path';
 import { Pool } from 'pg';
 import { configPostgres } from '../src/db/conexion';
 
@@ -271,16 +282,122 @@ async function importarContactos(archivo: string) {
   console.log(`\n  listo: ${nuevos.length} contactos agregados\n`);
 }
 
+// --- los archivos ------------------------------------------------------------
+
+/**
+ * Dónde se copian las fotos y los documentos.
+ *
+ * Contra la base local, al mismo almacén que usa la bandeja en desarrollo: así
+ * se ven en el hilo apenas termina el importador.
+ *
+ * Contra producción, a una carpeta de paso. La base es la del servidor pero el
+ * disco es este, y escribir acá un archivo que la bandeja va a buscar allá deja
+ * mensajes con la foto rota. Se copian a `respaldos/almacen-importado` con la
+ * misma estructura, y al final se imprime el `rsync` que los pone en su lugar.
+ */
+function carpetaDelAlmacen(): { raiz: string; esDePaso: boolean } {
+  const pedida = opcion('almacen');
+  if (pedida) return { raiz: pedida, esDePaso: false };
+
+  if (argv.includes('--produccion')) {
+    return { raiz: join('respaldos', 'almacen-importado'), esDePaso: true };
+  }
+
+  return { raiz: process.env.ALMACEN_DIR ?? './almacen', esDePaso: false };
+}
+
+/** Las mismas que entiende el almacén del servidor. */
+const EXTENSIONES: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'video/mp4': 'mp4',
+  'video/3gpp': '3gp',
+  'audio/ogg': 'ogg',
+  'audio/mpeg': 'mp3',
+  'audio/mp4': 'm4a',
+  'audio/aac': 'aac',
+  'audio/amr': 'amr',
+  'application/pdf': 'pdf',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.ms-excel': 'xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+};
+
+function extensionDe(mime: string | null, nombre: string | null): string {
+  const limpio = (mime ?? '').split(';')[0]!.trim().toLowerCase();
+  if (EXTENSIONES[limpio]) return EXTENSIONES[limpio];
+
+  const delNombre = (nombre ?? '').split('.').pop();
+  if (delNombre && delNombre.length <= 5 && /^[a-z0-9]+$/i.test(delNombre)) {
+    return delNombre.toLowerCase();
+  }
+  return 'bin';
+}
+
+/**
+ * Copia un archivo al almacén y devuelve la ruta relativa, que es lo que guarda
+ * la base.
+ *
+ * Con la misma forma que le da el servidor a lo que baja de Meta —año/mes y un
+ * uuid— para que no haya dos clases de ruta en la misma columna, y para que dos
+ * clientes que mandaron "IMG-20250903.jpg" no se pisen.
+ */
+function copiarAlAlmacen(origen: string, archivo: ArchivoExportado, raiz: string): string {
+  const ahora = new Date();
+  const carpeta = join(
+    String(ahora.getUTCFullYear()),
+    String(ahora.getUTCMonth() + 1).padStart(2, '0'),
+  );
+
+  const relativa = join(carpeta, `${randomUUID()}.${extensionDe(archivo.mime, archivo.original ?? archivo.nombre)}`);
+  const destino = join(raiz, relativa);
+
+  mkdirSync(join(raiz, carpeta), { recursive: true });
+  copyFileSync(origen, destino);
+
+  // En la base las rutas van con barras normales: el servidor es Linux y esto
+  // suele correrse en Windows, donde join usa barra invertida.
+  return relativa.split(sep).join('/');
+}
+
 // --- guardar un chat ---------------------------------------------------------
+
+/** Lo que el exportador dejó en la carpeta, por mensaje. */
+interface ArchivoExportado {
+  nombre: string;
+  /** image | video | audio | document | sticker, como los tipos de la bandeja. */
+  clase: string;
+  mime: string | null;
+  bytes: number | null;
+  /** El nombre con el que viajó, cuando es un documento. */
+  original: string | null;
+}
 
 interface Mensaje {
   cuando: Date;
   /** Si lo mandó el negocio. Lo demás entró. */
   mio: boolean;
   texto: string;
+  archivo?: ArchivoExportado;
 }
 
-async function guardarChat(telefono: string, nombre: string | null, mensajes: Mensaje[]) {
+/**
+ * Mete un chat completo: el contacto, la conversación y sus mensajes.
+ *
+ * `archivos` es la carpeta que dejó el exportador, o null si no se pidieron. Con
+ * carpeta, cada mensaje que trae archivo lo copia al almacén y queda apuntando
+ * ahí; sin carpeta, entra como texto y el que no tenía pie de foto se cuenta como
+ * salteado.
+ */
+async function guardarChat(
+  telefono: string,
+  nombre: string | null,
+  mensajes: Mensaje[],
+  archivos: { origen: string; raiz: string } | null,
+) {
   const { rows: contacto } = await pool.query<{ id: string }>(
     `INSERT INTO contacts (wa_id, telefono, nombre) VALUES ($1, $1, $2)
      ON CONFLICT (wa_id) DO UPDATE SET nombre = coalesce(contacts.nombre, EXCLUDED.nombre)
@@ -319,26 +436,59 @@ async function guardarChat(telefono: string, nombre: string | null, mensajes: Me
   }
 
   for (const m of mensajes) {
+    // Calculado a partir del mensaje, no al azar: asi correr el importador dos
+    // veces con el mismo archivo da los mismos identificadores y el ON CONFLICT
+    // lo absorbe, en vez de duplicar el historial. Alguien va a reimportar —
+    // porque agrego un chat a la carpeta, o porque no supo si la primera vez
+    // funciono. El nombre del archivo entra en la huella: dos fotos del mismo
+    // segundo sin pie de foto son dos mensajes distintos.
+    const waId =
+      'wamid.IMPORTADO' +
+      createHash('sha1')
+        .update(`${telefono}|${m.cuando.toISOString()}|${m.mio}|${m.texto}|${m.archivo?.nombre ?? ''}`)
+        .digest('hex');
+
+    /*
+     * Si el mensaje ya estaba, no se copia el archivo.
+     *
+     * El ON CONFLICT evita la fila repetida, pero no el archivo: sin esta
+     * consulta, reimportar dejaba otra copia de cada foto en el almacen, con
+     * otro uuid y sin nadie que la mirara.
+     */
+    const copiar = archivos && m.archivo;
+    if (copiar) {
+      const { rowCount } = await pool.query('SELECT 1 FROM messages WHERE wa_message_id = $1', [waId]);
+      if (rowCount) continue;
+    }
+
+    let mediaUrl: string | null = null;
+    if (copiar) {
+      mediaUrl = copiarAlAlmacen(join(archivos!.origen, m.archivo!.nombre), m.archivo!, archivos!.raiz);
+    }
+
+    // Con archivo el tipo es el del archivo y el texto es su pie, que es como lo
+    // guarda la bandeja cuando llega uno de verdad por el webhook.
+    const tipo = mediaUrl ? m.archivo!.clase : 'text';
+    const cuerpo = m.texto || (mediaUrl ? (m.archivo!.original ?? null) : null);
+
     await pool.query(
       `INSERT INTO messages
-         (conversation_id, wa_message_id, direccion, tipo, cuerpo, status, status_rank,
-          wa_timestamp, raw)
-       VALUES ($1, $2, $3, 'text', $4, 'delivered', 2, $5, $6)
+         (conversation_id, wa_message_id, direccion, tipo, cuerpo, caption, status, status_rank,
+          wa_timestamp, media_mime, media_url, media_nombre, media_tamano, raw)
+       VALUES ($1, $2, $3, $4, $5, $6, 'delivered', 2, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (wa_message_id) DO NOTHING`,
       [
         conversationId,
-        // Calculado a partir del mensaje, no al azar: asi correr el importador
-        // dos veces con el mismo archivo da los mismos identificadores y el
-        // ON CONFLICT lo absorbe, en vez de duplicar el historial. Alguien va a
-        // reimportar — porque agrego un chat a la carpeta, o porque no supo si
-        // la primera vez funciono.
-        'wamid.IMPORTADO' +
-          createHash('sha1')
-            .update(`${telefono}|${m.cuando.toISOString()}|${m.mio}|${m.texto}`)
-            .digest('hex'),
+        waId,
         m.mio ? 'out' : 'in',
-        m.texto,
+        tipo,
+        cuerpo,
+        mediaUrl ? m.texto || null : null,
         m.cuando,
+        mediaUrl ? m.archivo!.mime : null,
+        mediaUrl,
+        mediaUrl ? m.archivo!.original : null,
+        mediaUrl ? m.archivo!.bytes : null,
         JSON.stringify({ importado: true }),
       ],
     );
@@ -350,7 +500,18 @@ async function guardarChat(telefono: string, nombre: string | null, mensajes: Me
 interface ChatExportado {
   telefono?: string;
   nombre?: string | null;
-  mensajes?: { cuando?: string; mio?: boolean; texto?: string }[];
+  mensajes?: {
+    cuando?: string;
+    mio?: boolean;
+    texto?: string;
+    archivo?: {
+      nombre?: string;
+      clase?: string;
+      mime?: string | null;
+      bytes?: number | null;
+      original?: string | null;
+    };
+  }[];
 }
 
 async function importarMensajes(archivo: string) {
@@ -359,9 +520,44 @@ async function importarMensajes(archivo: string) {
     ? (crudo as ChatExportado[])
     : ((crudo as { chats?: ChatExportado[] }).chats ?? []);
 
-  console.log(`\n  ${chats.length} chats en el archivo\n`);
+  const pedidos = chats.reduce(
+    (n, c) => n + (c.mensajes ?? []).filter((m) => m.archivo?.nombre).length,
+    0,
+  );
+
+  /*
+   * La carpeta de los archivos, si se pidió.
+   *
+   * Si el JSON trae archivos y no se pasó la carpeta se avisa y se sigue con el
+   * texto: es lo que alguien va a hacer la primera vez, y cortar ahí sería peor
+   * que importar el historial y volver a correrlo con la carpeta después —el
+   * segundo pase no duplica nada—.
+   */
+  const origen = opcion('archivos');
+  const almacen = carpetaDelAlmacen();
+  const archivos = origen ? { origen, raiz: almacen.raiz } : null;
+
+  console.log(`\n  ${chats.length} chats en el archivo`);
+
+  if (pedidos && origen && !existsSync(origen)) {
+    console.error(`\n  no existe la carpeta ${origen}\n`);
+    process.exit(1);
+  }
+  if (pedidos && !origen) {
+    console.log(
+      `  ojo: el JSON trae ${pedidos} archivos y no pasaste --archivos <carpeta>;` +
+        ' entran sólo los que tengan texto',
+    );
+  } else if (pedidos) {
+    console.log(`  ${pedidos} archivos desde ${origen} hacia ${almacen.raiz}`);
+  }
+
+  console.log('');
 
   let total = 0;
+  let conArchivo = 0;
+  let faltantes = 0;
+  let sinNada = 0;
 
   for (const chat of chats) {
     const telefono = aE164(chat.telefono ?? '');
@@ -371,27 +567,87 @@ async function importarMensajes(archivo: string) {
     }
 
     const mensajes: Mensaje[] = (chat.mensajes ?? [])
-      .map((m) => ({
-        cuando: new Date(m.cuando ?? ''),
-        mio: m.mio === true,
-        texto: (m.texto ?? '').trim(),
-      }))
-      .filter((m) => m.texto && !Number.isNaN(m.cuando.getTime()))
+      .map((m) => {
+        const suelto = m.archivo?.nombre ? m.archivo : undefined;
+
+        /*
+         * El archivo sólo cuenta si está en la carpeta.
+         *
+         * El JSON puede nombrar uno que no se bajó —el celular apagado a mitad de
+         * la exportación—, y un mensaje que apunta a un archivo inexistente sale
+         * con la foto rota en el hilo, que es peor que no tenerlo.
+         */
+        const presente =
+          suelto && archivos && existsSync(join(archivos.origen, suelto.nombre!))
+            ? ({
+                nombre: suelto.nombre!,
+                clase: suelto.clase ?? 'document',
+                mime: suelto.mime ?? null,
+                bytes: suelto.bytes ?? null,
+                original: suelto.original ?? null,
+              } as ArchivoExportado)
+            : undefined;
+
+        if (suelto && archivos && !presente) faltantes++;
+
+        return {
+          cuando: new Date(m.cuando ?? ''),
+          mio: m.mio === true,
+          texto: (m.texto ?? '').trim(),
+          ...(presente ? { archivo: presente } : {}),
+        };
+      })
+      .filter((m) => {
+        if (Number.isNaN(m.cuando.getTime())) return false;
+        // Sin texto y sin archivo no hay mensaje que mostrar.
+        if (!m.texto && !m.archivo) {
+          sinNada++;
+          return false;
+        }
+        return true;
+      })
       .sort((a, b) => a.cuando.getTime() - b.cuando.getTime());
 
     if (mensajes.length === 0) continue;
 
+    conArchivo += mensajes.filter((m) => m.archivo).length;
+
     const desde = mensajes[0]!.cuando.toLocaleDateString('es');
     const hasta = mensajes.at(-1)!.cuando.toLocaleDateString('es');
     const quien = (chat.nombre ?? '(sin nombre)').padEnd(26).slice(0, 26);
-    console.log(`  +${telefono}  ${quien}  ${String(mensajes.length).padStart(4)} msg  ${desde} a ${hasta}`);
+    const conArch = mensajes.filter((m) => m.archivo).length;
+    console.log(
+      `  +${telefono}  ${quien}  ${String(mensajes.length).padStart(4)} msg` +
+        (conArch ? `  ${String(conArch).padStart(3)} arch` : '         ') +
+        `  ${desde} a ${hasta}`,
+    );
 
     total += mensajes.length;
-    if (deVerdad) await guardarChat(telefono, chat.nombre?.trim() || null, mensajes);
+    if (deVerdad) await guardarChat(telefono, chat.nombre?.trim() || null, mensajes, archivos);
   }
 
-  console.log(`\n  ${total} mensajes en total`);
-  if (!deVerdad) console.log('\n  SIMULACRO. Para hacerlo de verdad, agrega --de-verdad');
+  console.log(`\n  ${total} mensajes en total` + (conArchivo ? `, ${conArchivo} con archivo` : ''));
+
+  if (faltantes) {
+    console.log(`  ${faltantes} mensajes nombran un archivo que no está en la carpeta: entran sin él`);
+  }
+  if (sinNada) console.log(`  ${sinNada} quedaron fuera: sin texto y sin archivo`);
+
+  if (!deVerdad) {
+    console.log('\n  SIMULACRO. Para hacerlo de verdad, agrega --de-verdad');
+  } else if (conArchivo && almacen.esDePaso) {
+    /*
+     * Contra producción los archivos quedaron en este disco y la base es la del
+     * servidor. El comando va impreso porque sin este paso la bandeja muestra los
+     * mensajes con la foto rota, y el que importó no tiene por qué adivinar por qué.
+     */
+    console.log(
+      `\n  FALTA UN PASO: los archivos quedaron en ${almacen.raiz} y la base es la de\n` +
+        `  producción. Subilos al servidor antes de mirar la bandeja:\n\n` +
+        `    rsync -az ${almacen.raiz}/ root@107.170.72.128:/opt/whatswv/almacen/`,
+    );
+  }
+
   console.log('');
 }
 
@@ -503,10 +759,13 @@ async function importarChats(carpeta: string, yo: string) {
     totalMensajes += lineas.length;
     if (!deVerdad) continue;
 
+    // Sin archivos: la exportación del propio WhatsApp se pide «Sin archivos»,
+    // y lo que trae es un .txt con «<Multimedia omitido>» donde iba la foto.
     await guardarChat(
       telefono,
       deEllos[0] ?? null,
       lineas.map((l) => ({ cuando: l.cuando, mio: l.quien === yo, texto: l.texto })),
+      null,
     );
   }
 

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "WhatsWV — exportar",
-  "version": "1.0.0",
-  "description": "Saca los contactos y el historial de WhatsApp Web para pasarlos a la bandeja de WhatsWV.",
+  "version": "1.1.0",
+  "description": "Saca los contactos, el historial y los archivos de WhatsApp Web para pasarlos a la bandeja de WhatsWV.",
   "content_scripts": [
     {
       "matches": ["https://web.whatsapp.com/*"],

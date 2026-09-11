@@ -9,6 +9,13 @@
  *
  *   npm run importar -- contactos whatswv-contactos.csv
  *   npm run importar -- mensajes whatswv-chats.json
+ *   npm run importar -- mensajes whatswv-chats.json --archivos <carpeta>
+ *
+ * Las fotos, los audios y los documentos son aparte y van apagados: cada archivo
+ * se le pide al celular de a uno, asi que una exportacion de un minuto en texto
+ * puede ser media hora con archivos. Con la casilla marcada, el panel pide una
+ * carpeta y deja ahi un archivo por mensaje; el JSON guarda el nombre de cada uno
+ * y el importador los copia al almacen de la bandeja.
  *
  * ---
  *
@@ -143,6 +150,64 @@
   function textoDe(fila) {
     const t = fila?.body ?? fila?.caption ?? fila?.text ?? '';
     return typeof t === 'string' ? t.trim() : '';
+  }
+
+  /**
+   * Que clase de archivo trae un mensaje, o null si es solo texto.
+   *
+   * WhatsApp llama "ptt" a la nota de voz —push to talk—, que para la bandeja es
+   * un audio como cualquier otro. Lo demas pasa con el mismo nombre.
+   */
+  const CLASES = {
+    image: 'image',
+    video: 'video',
+    audio: 'audio',
+    ptt: 'audio',
+    document: 'document',
+    sticker: 'sticker',
+  };
+
+  function claseDe(fila) {
+    const t = String(fila?.type ?? '').toLowerCase();
+    return CLASES[t] ?? null;
+  }
+
+  /**
+   * La extension del archivo, a partir del mime.
+   *
+   * Las mismas que entiende el almacen de la bandeja. Si el mime no esta en la
+   * tabla se prueba con el nombre original —los documentos lo traen— y si
+   * tampoco, queda .bin: el importador mira el mime, no la extension, asi que
+   * un .bin entra igual. Es para que la carpeta se pueda mirar.
+   */
+  const EXTENSIONES = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'video/mp4': 'mp4',
+    'video/3gpp': '3gp',
+    'audio/ogg': 'ogg',
+    'audio/mpeg': 'mp3',
+    'audio/mp4': 'm4a',
+    'audio/aac': 'aac',
+    'audio/amr': 'amr',
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  };
+
+  function extensionDe(mime, nombre) {
+    const limpio = String(mime ?? '').split(';')[0].trim().toLowerCase();
+    if (EXTENSIONES[limpio]) return EXTENSIONES[limpio];
+
+    const delNombre = String(nombre ?? '').split('.').pop();
+    if (delNombre && delNombre.length <= 5 && /^[a-z0-9]+$/i.test(delNombre)) {
+      return delNombre.toLowerCase();
+    }
+    return 'bin';
   }
 
   // --- recorrer las bases -----------------------------------------------------
@@ -300,6 +365,55 @@
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
+  /**
+   * Deja un archivo en la carpeta que eligio el asesor.
+   *
+   * Con carpeta se escribe directo al disco y de a uno: un ZIP en memoria con un
+   * ano de fotos son cientos de megas en RAM y el navegador se cae justo al
+   * final, despues de veinte minutos de trabajo.
+   *
+   * Sin carpeta —navegador viejo— cae en Descargas como una bajada mas. Funciona,
+   * pero Chrome pregunta una vez si permite varias descargas y quedan cientos de
+   * archivos sueltos ahi: por eso la carpeta es el camino bueno.
+   */
+  async function escribirArchivo(carpeta, nombre, blob) {
+    if (!carpeta) {
+      bajar(nombre, blob, blob.type || 'application/octet-stream');
+      return;
+    }
+
+    const handle = await carpeta.getFileHandle(nombre, { create: true });
+    const escritor = await handle.createWritable();
+    await escritor.write(blob);
+    await escritor.close();
+  }
+
+  /**
+   * Pide la carpeta donde dejar los archivos.
+   *
+   * Tiene que correr con el gesto del usuario todavia fresco —el clic del boton—,
+   * asi que se llama antes de cualquier espera. Si el asesor cancela, se exporta
+   * el texto y nada mas: caer en cientos de descargas sueltas porque cerro un
+   * dialogo no es lo que pidio.
+   */
+  async function pedirCarpeta(avisar) {
+    if (!window.showDirectoryPicker) {
+      avisar('Este navegador no deja elegir carpeta: los archivos van a Descargas.');
+      return { carpeta: null, archivos: true };
+    }
+
+    try {
+      const carpeta = await window.showDirectoryPicker({
+        id: 'whatswv-archivos',
+        mode: 'readwrite',
+      });
+      return { carpeta, archivos: true };
+    } catch {
+      avisar('Sin carpeta: exporto solo el texto.');
+      return { carpeta: null, archivos: false };
+    }
   }
 
   async function sacarContactos(fuentes, avisar, opciones) {
@@ -495,9 +609,11 @@
     const vistos = new Set();
 
     for (const c of filtrados) {
-      if (!c.texto) continue;
+      // Un mensaje sin texto entra si trae archivo: la foto es el mensaje, y el
+      // texto —cuando hay— es su pie.
+      if (!c.texto && !c.archivo) continue;
 
-      const huella = `${c.telefono}|${c.segundos}|${c.mio}|${c.texto}`;
+      const huella = `${c.telefono}|${c.segundos}|${c.mio}|${c.texto}|${c.archivo?.nombre ?? ''}`;
       if (vistos.has(huella)) continue;
       vistos.add(huella);
 
@@ -506,6 +622,9 @@
         cuando: new Date(c.segundos * 1000).toISOString(),
         mio: c.mio,
         texto: c.texto,
+        // Solo cuando hay: un `archivo: null` en cada mensaje engorda el JSON
+        // y no dice nada.
+        ...(c.archivo ? { archivo: c.archivo } : {}),
       });
     }
 
@@ -519,10 +638,13 @@
     // mano, lo que importa esta arriba.
     salida.sort((a, b) => b.mensajes.length - a.mensajes.length);
 
+    const conArchivo = filtrados.filter((c) => c.archivo).length;
+
     avisar(
       `${salida.length} chats de ${leidos.toLocaleString('es')} filas` +
         (abiertos ? `, ${abiertos.toLocaleString('es')} descifrados` : '') +
-        (fallos ? ` (${fallos.toLocaleString('es')} no se pudieron abrir)` : ''),
+        (fallos ? ` (${fallos.toLocaleString('es')} no se pudieron abrir)` : '') +
+        (conArchivo ? `, ${conArchivo} con archivo` : ''),
     );
 
     bajar(
@@ -537,7 +659,7 @@
      * El importador lee el JSON, que no tiene ambiguedades; esto es para abrirlo
      * y revisar que trajo antes de meterlo a la bandeja. Una fila por mensaje.
      */
-    const filas = ['telefono,nombre,cuando,quien,texto'];
+    const filas = ['telefono,nombre,cuando,quien,texto,archivo'];
     for (const chat of salida) {
       for (const m of chat.mensajes) {
         filas.push(
@@ -547,6 +669,7 @@
             celda(m.cuando),
             m.mio ? 'nosotros' : 'cliente',
             celda(m.texto),
+            celda(m.archivo?.nombre ?? ''),
           ].join(','),
         );
       }
@@ -564,10 +687,10 @@
     const omitidos = waJsDio.omitidos ?? [];
 
     if (omitidos.length) {
-      filas.push('', `OMITIDOS: ${omitidos.length} chats que no entraron,,,,`);
-      filas.push('identificador,nombre,motivo,,');
+      filas.push('', `OMITIDOS: ${omitidos.length} chats que no entraron,,,,,`);
+      filas.push('identificador,nombre,motivo,,,');
       for (const o of omitidos) {
-        filas.push([celda(o.id), celda(o.nombre), celda(o.motivo), '', ''].join(','));
+        filas.push([celda(o.id), celda(o.nombre), celda(o.motivo), '', '', ''].join(','));
       }
     }
 
@@ -583,7 +706,7 @@
     // fallo la busqueda, los telefonos o el celular.
     if (salida.length === 0) avisar(`0 chats. ${waJsDio.nota}`);
 
-    return salida.length;
+    return { chats: salida.length, archivos: waJsDio.bajados ?? 0, sinBajar: waJsDio.sinBajar ?? 0 };
   }
 
 
@@ -708,6 +831,9 @@
     const salida = [];
     let conTelefono = 0;
     let fallaron = 0;
+    let bajados = 0;
+    let sinBajar = 0;
+    let bytes = 0;
 
     /*
      * Los que no entran, anotados con el motivo.
@@ -761,10 +887,14 @@
 
       let conTexto = 0;
 
-      for (const m of mensajes) {
+      for (const [j, m] of mensajes.entries()) {
         const segundos = cuandoDe(m);
         const texto = textoDe(m);
-        if (!segundos || !texto) continue;
+        const clase = claseDe(m);
+
+        // Antes se pedia texto si o si, y una conversacion de puras fotos se
+        // perdia entera. Ahora entra si tiene texto O si trae archivo.
+        if (!segundos || (!texto && !clase)) continue;
         if (opciones.desde && segundos < opciones.desde) continue;
 
         // El chat ya dice de quien es la conversacion; del mensaje solo hace
@@ -773,8 +903,51 @@
         const de = deQuienEs(m);
         const mio = de ? de.mio : m?.id?.fromMe === true;
 
+        /*
+         * El archivo, si se pidieron.
+         *
+         * downloadMedia se lo pide al celular cuando no esta en esta maquina, asi
+         * que tarda y puede fallar por mil razones —el celular apagado, media que
+         * WhatsApp ya no tiene—. Falla de a uno: el mensaje entra igual con su
+         * pie de foto, y al final el panel dice cuantos quedaron sin archivo.
+         */
+        let archivo = null;
+
+        if (clase && opciones.archivos) {
+          try {
+            const blob = await wpp.chat.downloadMedia(comoTexto(m.id) || m.id);
+            const mime = (blob?.type || m?.mimetype || '').split(';')[0];
+            // Nombre calculado, no al azar: reexportar sobre la misma carpeta
+            // reescribe el mismo archivo en vez de dejar copias.
+            const nombre = telefono + '-' + segundos + '-' + j + '.' + extensionDe(mime, m?.filename);
+
+            await escribirArchivo(opciones.carpeta, nombre, blob);
+
+            archivo = {
+              nombre,
+              clase,
+              mime: mime || null,
+              bytes: blob.size ?? null,
+              original: m?.filename ?? null,
+            };
+            bajados++;
+            bytes += blob.size ?? 0;
+
+            if (bajados % 10 === 0) {
+              avisar('pidiendo historial ' + (i + 1) + ' de ' + chats.length + '… (' + bajados + ' archivos)');
+            }
+          } catch (e) {
+            sinBajar++;
+            console.warn('[whatswv] archivo de ' + telefono + ':', e?.message ?? e);
+          }
+        }
+
+        // Sin texto y sin archivo no hay nada que importar: un mensaje vacio en
+        // el hilo es peor que no tenerlo.
+        if (!texto && !archivo) continue;
+
         conTexto++;
-        salida.push({ telefono, mio, segundos, texto, opaco: null });
+        salida.push({ telefono, mio, segundos, texto, opaco: null, clase, archivo });
       }
 
       if (conTexto === 0) {
@@ -791,10 +964,12 @@
     const nota =
       `${chats.length} chats, ${conTelefono} con telefono` +
       (fallaron ? `, ${fallaron} sin respuesta del celular` : '') +
-      (omitidos.length ? `, ${omitidos.length} omitidos` : '');
+      (omitidos.length ? `, ${omitidos.length} omitidos` : '') +
+      (bajados ? `, ${bajados} archivos (${Math.round(bytes / 1048576)} MB)` : '') +
+      (sinBajar ? `, ${sinBajar} archivos no se pudieron bajar` : '');
 
     console.log(`[whatswv] WA-JS: ${salida.length} mensajes. ${nota}`);
-    return { mensajes: salida, nota, omitidos };
+    return { mensajes: salida, nota, omitidos, bajados, sinBajar, bytes };
   }
 
   /** Los nombres que tenga WA-JS, que son los mismos que se ven en pantalla. */
@@ -1303,6 +1478,27 @@
     linea.append(guardados, document.createTextNode('Sólo contactos guardados'));
     caja.appendChild(linea);
 
+    /*
+     * Los archivos van aparte y apagados por defecto.
+     *
+     * Bajar un ano de fotos le pide al celular cada archivo de a uno: lo que
+     * tarda un minuto en texto puede tardar media hora con fotos. El que la
+     * necesita la marca; el que solo quiere los contactos y el texto no paga esa
+     * espera sin haberla pedido.
+     */
+    const lineaArchivos = document.createElement('label');
+    lineaArchivos.style.cssText =
+      'display:flex;gap:6px;align-items:center;margin-bottom:4px;color:#444;cursor:pointer';
+    const conArchivos = document.createElement('input');
+    conArchivos.type = 'checkbox';
+    lineaArchivos.append(conArchivos, document.createTextNode('Traer fotos, audios y documentos'));
+    caja.appendChild(lineaArchivos);
+
+    const nota = document.createElement('div');
+    nota.style.cssText = 'color:#888;font-size:10px;line-height:1.35;margin:0 0 10px 22px';
+    nota.textContent = 'Pide una carpeta donde dejarlos. Tarda bastante más: cada archivo se le pide al celular.';
+    caja.appendChild(nota);
+
     const estado = document.createElement('div');
     estado.style.cssText =
       'margin-top:10px;padding:8px;border-radius:8px;background:#f4f4f5;color:#444;font-size:11px;min-height:32px';
@@ -1324,6 +1520,10 @@
       desde: desde.value ? Math.floor(new Date(desde.value + 'T00:00:00').getTime() / 1000) : null,
       porChat: Number(porChat.value),
       soloGuardados: guardados.checked,
+      archivos: conArchivos.checked,
+      // La llena el boton de chats al elegir carpeta, porque el selector necesita
+      // el clic todavia fresco y aca ya no lo esta.
+      carpeta: null,
     });
 
     const boton = (texto, principal, alPulsar) => {
@@ -1440,8 +1640,27 @@
     });
 
     boton('Chats (JSON + CSV)', true, async (av, op) => {
-      const n = await sacarChats(fuentes, av, op);
-      av(`Listo: ${n} chats. Al final del CSV estan los que no entraron.`);
+      /*
+       * La carpeta se pide PRIMERO, antes de cualquier espera.
+       *
+       * El navegador solo abre el selector de carpeta con el gesto del usuario
+       * todavia fresco; despues del primer await ya lo considera vencido y
+       * rechaza el dialogo.
+       */
+      if (op.archivos) {
+        const elegida = await pedirCarpeta(av);
+        op.carpeta = elegida.carpeta;
+        op.archivos = elegida.archivos;
+      }
+
+      const r = await sacarChats(fuentes, av, op);
+
+      av(
+        `Listo: ${r.chats} chats` +
+          (r.archivos ? `, ${r.archivos} archivos` : '') +
+          (r.sinBajar ? ` (${r.sinBajar} sin bajar)` : '') +
+          '. Al final del CSV estan los que no entraron.',
+      );
     });
 
     /*
