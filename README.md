@@ -429,6 +429,17 @@ limpie — incluso si el socket se cierra durante la validación del token.
 Necesita ser la **única** instancia corriendo contra esa base: si hay otra, se
 reparten la cola de webhooks y los resultados se vuelven aleatorios.
 
+**Nunca contra producción, y está trabado.** Las suites y `npm run simular` escriben
+conversaciones falsas y sueltan las asignadas —`simular -- limpiar` vacía la
+bandeja—. Mientras exista la base de desarrollo da igual, pero se borra al migrar
+los clientes, y ahí el `.env` pasa a apuntar a producción. Por eso comparan la base
+del `.env` con `.env.respaldo-produccion` y se niegan a correr si es la misma, aunque
+el servidor sea localhost. Para probar con datos reales sin tocarlos: una rama de
+producción en Neon, el `.env` apuntando a ella, y borrarla al terminar.
+
+`npm run test:dormir` prueba que la base pueda dormir sin romper el worker (ver
+«La base duerme cuando nadie la usa»). Ese sí necesita la base de desarrollo.
+
 ---
 
 ## Estructura

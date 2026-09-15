@@ -17,6 +17,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Pool } from 'pg';
 import { configPostgres } from '../src/db/conexion';
+import { esBaseDeProduccion } from './es-produccion';
 
 try {
   process.loadEnvFile();
@@ -367,6 +368,16 @@ async function media(telefono: string) {
 }
 
 async function main() {
+  // Simula conversaciones falsas, y "limpiar" borra todo lo simulado. Ninguna de
+  // las dos tiene nada que hacer en la base de verdad.
+  if (esBaseDeProduccion(process.env.DATABASE_URL) && process.env.PRUEBAS_EN_PRODUCCION !== 'si') {
+    console.error(
+      '\n  El .env apunta a la base de PRODUCCIÓN: simular escribe conversaciones falsas' +
+        '\n  y "limpiar" vacía la bandeja. No se corre acá.\n',
+    );
+    process.exit(1);
+  }
+
   const [comando, ...args] = process.argv.slice(2);
 
   switch (comando) {
