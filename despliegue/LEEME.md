@@ -154,6 +154,34 @@ ssh -i ~/.ssh/whatswv root@107.170.72.128 "sed -i '/github-actions-desplegar@Cha
 
 Y borrar el secret `SSH_WHATSWV` en GitHub.
 
+## Hacer cambios con Claude, sin este computador
+
+El botón despliega, pero no cambia nada. Para pedirle un cambio a Claude con el
+computador apagado, una sesión en la nube: [claude.ai/code](https://claude.ai/code), o la
+app de Claude en el celular.
+
+**La primera vez:** entrar a claude.ai/code, conectar GitHub dándole acceso al
+repositorio `ChatwasVW`, y dejar el entorno **Default** (red *Trusted*, sin variables
+ni script). No hace falta nada más: al arrancar, la sesión instala las dependencias
+sola (`scripts/instalar-nube.sh`) y lee `CLAUDE.md`, que es donde está lo que tiene que
+saber del negocio.
+
+**No cargar secretos en el entorno** —ni el `.env`, ni la llave del servidor—: la
+documentación de Claude avisa que cualquier comando de la sesión puede leer esas
+variables. La sesión trabaja sin ellos.
+
+**Cómo queda el circuito:**
+
+1. Le pedís el cambio. Claude lo hace, lo verifica (compila, construye la bandeja,
+   corre el smoke) y lo sube en **una rama con pull request**: desde la nube no puede
+   escribir directo en `main`.
+2. Revisás el pull request en GitHub y, si está bien, lo aprobás (*Merge*).
+3. Fuera de horario, le pedís que despliegue, o apretás vos el botón. Claude lo
+   dispara con `gh workflow run`, sin ver la llave.
+
+Lo que desde la nube **no** se puede: tocar las bases, la API de Meta, o correr las
+pruebas que necesitan servidor y base. Eso sigue siendo del escritorio.
+
 ### Si se reinstala el droplet
 
 Cambia la huella del servidor y el botón se niega a conectar —que es lo que tiene que
