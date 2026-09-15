@@ -10,6 +10,8 @@
  *   5. la cola con FOR UPDATE SKIP LOCKED
  *   6. la validacion de firma X-Hub-Signature-256
  */
+// Primero, antes que cualquier modulo del servidor: ver smoke-sin-env.ts.
+import './smoke-sin-env';
 import { PGlite } from '@electric-sql/pglite';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
