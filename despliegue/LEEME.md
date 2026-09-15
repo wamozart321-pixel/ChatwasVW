@@ -111,6 +111,18 @@ journalctl -u whatswv -n 200     # las últimas 200 líneas
 systemctl restart whatswv        # reiniciar
 ```
 
+La base duerme cuando no hay actividad, y el log lo dice. Que aparezcan estas líneas
+es lo normal, no un error:
+
+```
+10 min sin actividad: dejo de consultar la base y Neon la puede apagar
+la base cerro la conexion del lock: ...; se toma de nuevo al volver
+hay actividad: vuelvo a revisar la base
+```
+
+Para ver si de verdad duerme: en Neon, la rama de producción muestra el cómputo como
+*Idle* de noche, y el uso de horas del mes deja de subir a razón de 24 por día.
+
 De Caddy y los certificados:
 
 ```bash

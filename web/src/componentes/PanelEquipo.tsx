@@ -71,7 +71,13 @@ export default function PanelEquipo({
         .catch(() => vigente && setError('No se pudo cargar el equipo'));
 
     void cargar();
-    const t = setInterval(cargar, 10_000);
+
+    // Sólo con la ventana a la vista. La app de escritorio vive en la bandeja del
+    // sistema y este panel puede quedar abierto toda la noche: preguntando cada
+    // diez segundos, no dejaba dormir la base aunque nadie lo estuviera mirando.
+    const t = setInterval(() => {
+      if (!document.hidden) void cargar();
+    }, 10_000);
 
     return () => {
       vigente = false;

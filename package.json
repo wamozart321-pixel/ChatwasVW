@@ -23,6 +23,7 @@
     "asesores": "tsx scripts/asesores.ts",
     "test:asignacion": "tsx test/asignacion.ts",
     "test:operacion": "tsx test/operacion.ts",
+    "test:dormir": "nest build && node test/dormir.js",
     "plantillas": "tsx scripts/plantillas.ts",
     "test:bot": "tsx test/bot.ts",
     "escritorio": "npm --prefix escritorio run dev",

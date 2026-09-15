@@ -6,6 +6,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import type { Pool, PoolClient } from 'pg';
+import { ActividadService } from '../db/actividad.service';
 import { PG_POOL } from '../db/db.module';
 import { InboundService } from '../whatsapp/inbound.service';
 import type { WaWebhookPayload } from '../whatsapp/webhook.types';
@@ -25,6 +26,16 @@ const LOCK_WORKER = 20260822;
 const REINTENTO_LOCK_MS = 15_000;
 
 /**
+ * Cada cuanto se mira la cola aunque no haya pasado nada.
+ *
+ * Con todo quieto el worker no pregunta: espera a que un webhook lo despierte.
+ * Esto es la red de seguridad para lo que no avisa —un evento que fallo y quedo
+ * para reintentar—, y es largo a proposito: cada vuelta despierta la base cinco
+ * minutos, y cuatro por dia son veinte minutos de computo, no veinticuatro horas.
+ */
+const BARRIDO_MS = 6 * 60 * 60 * 1000;
+
+/**
  * Cola sobre Postgres con FOR UPDATE SKIP LOCKED.
  * Varias instancias del server pueden correr este worker sin pisarse:
  * cada una se lleva filas distintas.
@@ -37,10 +48,13 @@ export class WebhookWorker implements OnModuleInit, OnApplicationShutdown {
   private bucleTerminado: Promise<void> = Promise.resolve();
   /** Conexion dedicada: un advisory lock vive mientras viva su sesion. */
   private conexionLock: PoolClient | null = null;
+  /** Si el lock sigue en pie. Se cae cada vez que Neon duerme la base. */
+  private tieneLock = false;
 
   constructor(
     @Inject(PG_POOL) private readonly pool: Pool,
     private readonly inbound: InboundService,
+    private readonly actividad: ActividadService,
   ) {}
 
   onModuleInit() {
@@ -53,12 +67,30 @@ export class WebhookWorker implements OnModuleInit, OnApplicationShutdown {
     await this.bucleTerminado;
 
     // Soltar el lock explicitamente acelera el relevo de otra instancia.
-    if (this.conexionLock) {
+    if (this.conexionLock && this.tieneLock) {
       await this.conexionLock
         .query('SELECT pg_advisory_unlock($1)', [LOCK_WORKER])
         .catch(() => undefined);
-      this.conexionLock.release();
-      this.conexionLock = null;
+    }
+    this.soltarConexionLock();
+  }
+
+  /**
+   * Descarta la conexion del lock.
+   *
+   * `release(true)` la destruye en lugar de devolverla al pool: una conexion que la
+   * base corto no sirve para nada, y devuelta al pool la recibiria la proxima
+   * consulta, que fallaria sin motivo aparente.
+   */
+  private soltarConexionLock(error?: Error) {
+    const cliente = this.conexionLock;
+    this.conexionLock = null;
+    this.tieneLock = false;
+
+    try {
+      cliente?.release(error ?? true);
+    } catch {
+      // Ya estaba liberada: pasa si se corto y ademas se apago el proceso.
     }
   }
 
@@ -75,43 +107,81 @@ export class WebhookWorker implements OnModuleInit, OnApplicationShutdown {
    * lo toma sin intervencion.
    */
   private async tomarLock(): Promise<boolean> {
-    if (!this.conexionLock) this.conexionLock = await this.pool.connect();
+    if (!this.conexionLock) {
+      const cliente = await this.pool.connect();
+
+      /*
+       * El lock se pierde cada noche, y hay que enterarse.
+       *
+       * Cuando Neon duerme la base cierra esta conexion, y el advisory lock muere
+       * con ella. Sin escuchar el corte, el worker seguiria creyendo que lo tiene;
+       * y sin un 'error' atendido en un cliente sacado del pool, Node lo toma como
+       * excepcion no atrapada y tumba el servidor.
+       */
+      const alCortarse = (e?: Error) => {
+        if (this.conexionLock !== cliente) return;
+        const detalle = e ? ': ' + e.message : '';
+        this.log.log('la base cerro la conexion del lock' + detalle + '; se toma de nuevo al volver');
+        this.soltarConexionLock(e);
+      };
+      cliente.on('error', alCortarse);
+      cliente.on('end', () => alCortarse());
+
+      this.conexionLock = cliente;
+    }
 
     const { rows } = await this.conexionLock.query<{ tomado: boolean }>(
       'SELECT pg_try_advisory_lock($1) AS tomado',
       [LOCK_WORKER],
     );
 
-    return rows[0]?.tomado === true;
+    this.tieneLock = rows[0]?.tomado === true;
+    return this.tieneLock;
   }
 
   private async bucle(): Promise<void> {
-    // Esperar el lock antes de tocar la cola.
     let aviso = false;
-    while (!this.parando) {
-      try {
-        if (await this.tomarLock()) break;
-      } catch (e) {
-        this.log.error(`no se pudo pedir el lock: ${(e as Error).message}`);
-      }
-
-      if (!aviso) {
-        aviso = true;
-        this.log.warn(
-          'otra instancia ya esta procesando la cola de webhooks. Esta se queda ' +
-            'a la espera: dos workers sobre la misma base se roban los mensajes ' +
-            'entre si y el ruteo y el bot dejan de funcionar. Si no es a proposito, ' +
-            'apaga la otra instancia.',
-        );
-      }
-
-      await this.dormir(REINTENTO_LOCK_MS);
-    }
-
-    if (this.parando) return;
-    if (aviso) this.log.log('lock obtenido: esta instancia toma la cola');
 
     while (!this.parando) {
+      /*
+       * El lock antes de tocar la cola, y no solo al arrancar.
+       *
+       * Antes se tomaba una vez y duraba lo que durara el proceso, porque la base
+       * nunca dormia. Ahora se pierde cada vez que Neon la apaga, asi que se
+       * vuelve a pedir en la primera vuelta despues de despertar.
+       */
+      if (!this.tieneLock) {
+        let tomado = false;
+
+        try {
+          tomado = await this.tomarLock();
+        } catch (e) {
+          this.log.error(`no se pudo pedir el lock: ${(e as Error).message}`);
+          this.soltarConexionLock(e as Error);
+          await this.dormir(REINTENTO_LOCK_MS);
+          continue;
+        }
+
+        if (!tomado) {
+          if (!aviso) {
+            aviso = true;
+            this.log.warn(
+              'otra instancia ya esta procesando la cola de webhooks. Esta se queda ' +
+                'a la espera: dos workers sobre la misma base se roban los mensajes ' +
+                'entre si y el ruteo y el bot dejan de funcionar. Si no es a proposito, ' +
+                'apaga la otra instancia.',
+            );
+          }
+          await this.dormir(REINTENTO_LOCK_MS);
+          continue;
+        }
+
+        if (aviso) {
+          this.log.log('lock obtenido: esta instancia toma la cola');
+          aviso = false;
+        }
+      }
+
       let hizoAlgo = false;
 
       try {
@@ -141,7 +211,24 @@ export class WebhookWorker implements OnModuleInit, OnApplicationShutdown {
         continue;
       }
 
-      if (!hizoAlgo) await this.dormir(INTERVALO_VACIO_MS);
+      if (hizoAlgo) {
+        // Procesar un mensaje es actividad: puede haber dejado una conversacion
+        // asignada, y el rescate tiene que seguir mirando.
+        this.actividad.marcar();
+        continue;
+      }
+
+      /*
+       * Nada en la cola.
+       *
+       * Con actividad reciente se vuelve a mirar en medio segundo, como siempre: es
+       * horario de trabajo y un webhook que falla tiene que reintentarse rapido.
+       * Pasada la ventana se deja de preguntar y se espera a que alguien encole —el
+       * aviso llega en memoria, sin tocar la base—. Esa es toda la diferencia entre
+       * una base prendida las 24 horas y una que duerme de noche.
+       */
+      if (this.actividad.reciente()) await this.dormir(INTERVALO_VACIO_MS);
+      else await this.actividad.esperar(BARRIDO_MS);
     }
   }
 

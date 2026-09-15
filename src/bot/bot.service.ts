@@ -20,6 +20,7 @@ import {
   type Pregunta,
 } from './flujo';
 import { estaAbierto, parsearFranja, proximaApertura, type Horario } from './horario';
+import { ActividadService } from '../db/actividad.service';
 
 /** Cada cuanto se revisa si hay alguien esperando a mitad del flujo. */
 const INTERVALO_REVISION_MS = 60_000;
@@ -41,6 +42,7 @@ export class BotService implements OnModuleInit, OnApplicationShutdown {
     private readonly mensajes: MessagesService,
     private readonly realtime: RealtimeGateway,
     private readonly asignacion: AsignacionService,
+    private readonly actividad: ActividadService,
   ) {
     const semana = parsearFranja(env.HORARIO_LUNES_VIERNES);
     this.horario = {
@@ -62,7 +64,15 @@ export class BotService implements OnModuleInit, OnApplicationShutdown {
   onModuleInit() {
     if (!env.BOT_ACTIVO || env.BOT_ESPERA_MINUTOS === 0) return;
 
-    this.temporizador = setInterval(() => void this.revisarAbandonadas(), INTERVALO_REVISION_MS);
+    // Igual que el rescate: sólo si hubo actividad, y lo que mueva cuenta como tal.
+    // Un flujo a medias sale siempre de un mensaje del cliente, que ya marcó
+    // actividad al llegar; la ventana cubre de sobra BOT_ESPERA_MINUTOS.
+    this.temporizador = setInterval(() => {
+      if (!this.actividad.reciente()) return;
+      void this.revisarAbandonadas().then((n) => {
+        if (n > 0) this.actividad.marcar();
+      });
+    }, INTERVALO_REVISION_MS);
     this.log.log(
       `revision del bot activa: pasa a un asesor lo que quede sin respuesta ${env.BOT_ESPERA_MINUTOS} min`,
     );

@@ -201,6 +201,25 @@ Qué queda sin pisar es a propósito: los botones sólidos con letra blanca, los
 los acentos claros. Se puede auditar mirando que toda utilidad de color del código
 esté cubierta por una variable o por una regla.
 
+**La base duerme cuando nadie la usa.** Neon apaga el cómputo tras 5 minutos sin
+consultas y cobra —o descuenta de las 100 horas del plan gratis— sólo mientras está
+prendido. El servidor no la dejaba dormir nunca: el worker preguntaba cada medio
+segundo si había webhooks y el rescate y el bot corrían cada minuto. Llevaba 22 días
+prendida sin parar.
+
+Ahora [`ActividadService`](src/db/actividad.service.ts) lleva en memoria cuándo hubo
+algo real —un webhook de Meta, un asesor usando la API, una revisión que movió algo—
+y todo lo periódico pregunta ahí antes de tocar la base. Pasados 10 minutos sin
+actividad no se consulta nada; el primer webhook la despierta en unos cientos de
+milisegundos, y el worker lo recibe por aviso en memoria, no por sondeo. La ventana
+cubre a propósito el rescate y el bot: tiene que durar más que `RESCATE_MINUTOS`.
+
+Dos cosas que se rompían al dormir y hubo que atender: cuando Neon apaga cierra las
+conexiones, y un `'error'` sin escuchar en el pool tumbaba el proceso —y al
+reiniciar la despertaba, en bucle—; y el advisory lock del worker muere con su
+conexión, así que ahora se vuelve a tomar al despertar. `npm run test:dormir` lo
+prueba contra desarrollo matando las conexiones, que es lo que hace Neon.
+
 **Los estados sólo avanzan.** `status_rank` numérico: un `delivered` que llega tarde
 no puede pisar un `read`. Pasa seguido en la práctica.
 

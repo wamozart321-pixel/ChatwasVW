@@ -11,6 +11,7 @@ import {
 import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import type { Asesor } from '../auth/auth.service';
 import { env } from '../config/env';
+import { ActividadService } from '../db/actividad.service';
 import { DB, type Database } from '../db/db.module';
 import { conversations, events, users } from '../db/schema';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
@@ -26,6 +27,7 @@ export class AsignacionService implements OnModuleInit, OnApplicationShutdown {
   constructor(
     @Inject(DB) private readonly db: Database,
     private readonly realtime: RealtimeGateway,
+    private readonly actividad: ActividadService,
   ) {}
 
   onModuleInit() {
@@ -33,13 +35,28 @@ export class AsignacionService implements OnModuleInit, OnApplicationShutdown {
       this.log.log('rescate de conversaciones desactivado (RESCATE_MINUTOS=0)');
       return;
     }
-    this.temporizador = setInterval(() => void this.rescatar(), INTERVALO_RESCATE_MS);
+    this.temporizador = setInterval(() => void this.rescatarSiHaceFalta(), INTERVALO_RESCATE_MS);
     this.temporizador.unref?.();
     this.log.log(`rescate activo: devuelve a la cola tras ${env.RESCATE_MINUTOS} min sin respuesta`);
   }
 
   onApplicationShutdown() {
     if (this.temporizador) clearInterval(this.temporizador);
+  }
+
+  /**
+   * La vuelta de cada minuto, sólo si hubo actividad.
+   *
+   * Sin nadie escribiendo y sin asesores trabajando no puede haber una conversación
+   * recién asignada que rescatar, así que no hace falta preguntarle a la base: esa
+   * pregunta, cada minuto, era la mitad de lo que no la dejaba dormir.
+   *
+   * Si el rescate movió algo cuenta como actividad: la conversación vuelve a la
+   * cola y puede asignarse de nuevo, y eso hay que seguirlo mirando.
+   */
+  private async rescatarSiHaceFalta() {
+    if (!this.actividad.reciente()) return;
+    if ((await this.rescatar()) > 0) this.actividad.marcar();
   }
 
   /**
