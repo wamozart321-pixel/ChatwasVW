@@ -17,6 +17,17 @@
  * se puede confundir — el nombre del contacto o el numero se prestan a error,
  * y aca borrar de mas significa perder la conversacion de un cliente.
  *
+ * Tambien se conserva lo que entro por el importador, que no pasa por Meta:
+ *
+ *   - los mensajes importados (`wamid.IMPORTADO...`), que son el historial de
+ *     los clientes traido del celular. Sin esto, correr la limpieza despues de
+ *     migrar se llevaba los sesenta mil mensajes.
+ *   - los contactos sin ninguna conversacion, que es como quedan los que se
+ *     importan del CSV. La limpieza borraba "todo lo que no se pueda probar que
+ *     es real", y un contacto importado no tiene nada con que probarlo: se iba la
+ *     lista de clientes entera. Ahora solo se borra el contacto que tiene
+ *     conversaciones y todas son de prueba.
+ *
  * SIEMPRE hacer un respaldo antes. Esto no se puede deshacer.
  */
 import { readFileSync } from 'node:fs';
@@ -58,20 +69,27 @@ const deVerdad = process.argv.includes('--de-verdad');
 const pool = new Pool(configPostgres(url, 2));
 
 async function main() {
-  const { rows: reales } = await pool.query<{ wa_id: string; nombre: string; n: number }>(`
+  const { rows: reales } = await pool.query<{
+    wa_id: string;
+    nombre: string;
+    n: number;
+    importados: number;
+  }>(`
     SELECT ct.wa_id, coalesce(ct.nombre, '') AS nombre,
-           count(*) FILTER (WHERE m.direccion = 'in' AND m.wa_message_id LIKE 'wamid.HB%')::int AS n
+           count(*) FILTER (WHERE m.direccion = 'in' AND m.wa_message_id LIKE 'wamid.HB%')::int AS n,
+           count(*) FILTER (WHERE m.wa_message_id LIKE 'wamid.IMPORTADO%')::int AS importados
       FROM contacts ct
       JOIN conversations c ON c.contact_id = ct.id
       JOIN messages m ON m.conversation_id = c.id
      GROUP BY ct.wa_id, ct.nombre
     HAVING count(*) FILTER (WHERE m.direccion = 'in' AND m.wa_message_id LIKE 'wamid.HB%') > 0
+        OR count(*) FILTER (WHERE m.wa_message_id LIKE 'wamid.IMPORTADO%') > 0
      ORDER BY ct.wa_id
   `);
 
   if (!reales.length) {
     console.error(`
-  No se encontro ningun contacto con mensajes de Meta.
+  No se encontro ningun contacto con mensajes de Meta ni importados.
 
   Eso significaria borrar TODO, asi que se corta aca. Si de verdad queres
   vaciar la base, usa 'npm run simular -- limpiar'.
@@ -81,14 +99,32 @@ async function main() {
 
   const conservar = reales.map((r) => r.wa_id);
 
-  console.log('\nSE CONSERVAN (tienen mensajes que vinieron de Meta):\n');
-  for (const r of reales) {
-    console.log(`   +${r.wa_id.padEnd(14)} ${r.nombre.slice(0, 22).padEnd(24)} ${r.n} mensajes reales`);
+  console.log('\nSE CONSERVAN (tienen mensajes de Meta o importados):\n');
+  const aLaVista = reales.slice(0, 40);
+  for (const r of aLaVista) {
+    const detalle = [r.n ? `${r.n} reales` : '', r.importados ? `${r.importados} importados` : '']
+      .filter(Boolean)
+      .join(', ');
+    console.log(`   +${r.wa_id.padEnd(14)} ${r.nombre.slice(0, 22).padEnd(24)} ${detalle}`);
+  }
+  // Despues de migrar son miles: listarlos todos tapa lo que importa, que es
+  // cuanto se borra.
+  if (reales.length > aLaVista.length) {
+    console.log(`   … y ${reales.length - aLaVista.length} contactos mas`);
+  }
+
+  const { rows: sinConversacion } = await pool.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM contacts ct
+      WHERE NOT EXISTS (SELECT 1 FROM conversations c WHERE c.contact_id = ct.id)`,
+  );
+  if (sinConversacion[0].n) {
+    console.log(`   + ${sinConversacion[0].n} contactos sin conversaciones (los importados del CSV)`);
   }
 
   const { rows: aBorrar } = await pool.query<{ contactos: number; conversaciones: number; mensajes: number }>(
     `SELECT
-       (SELECT count(*)::int FROM contacts WHERE wa_id <> ALL($1::text[]))          AS contactos,
+       (SELECT count(*)::int FROM contacts ct WHERE ct.wa_id <> ALL($1::text[])
+           AND EXISTS (SELECT 1 FROM conversations c WHERE c.contact_id = ct.id))  AS contactos,
        (SELECT count(*)::int FROM conversations c JOIN contacts ct ON ct.id = c.contact_id
          WHERE ct.wa_id <> ALL($1::text[]))                                         AS conversaciones,
        (SELECT count(*)::int FROM messages m
@@ -129,12 +165,18 @@ async function main() {
     // mensajes ni un mensaje apuntando a una conversacion que ya no existe.
     await cliente.query('BEGIN');
 
-    const { rows: convs } = await cliente.query<{ id: string }>(
-      `SELECT c.id FROM conversations c JOIN contacts ct ON ct.id = c.contact_id
+    const { rows: convs } = await cliente.query<{ id: string; contact_id: string }>(
+      `SELECT c.id, c.contact_id FROM conversations c JOIN contacts ct ON ct.id = c.contact_id
         WHERE ct.wa_id <> ALL($1::text[])`,
       [conservar],
     );
     const ids = convs.map((c) => c.id);
+
+    // Los contactos a borrar se deciden ANTES de borrar las conversaciones: son
+    // los que tenian conversaciones de prueba. Preguntarlo despues daria que
+    // ninguno tiene conversaciones —ya se borraron— y no se borraria ninguno;
+    // preguntarlo con "no esta en la lista" se llevaba los importados del CSV.
+    const contactosABorrar = [...new Set(convs.map((c) => c.contact_id))];
 
     console.log('\nborrando...');
     for (const tabla of ['messages', 'notes', 'conversation_tags', 'events']) {
@@ -148,7 +190,7 @@ async function main() {
     const c = await cliente.query(`DELETE FROM conversations WHERE id = ANY($1::uuid[])`, [ids]);
     console.log(`   conversations       ${c.rowCount}`);
 
-    const ct = await cliente.query(`DELETE FROM contacts WHERE wa_id <> ALL($1::text[])`, [conservar]);
+    const ct = await cliente.query(`DELETE FROM contacts WHERE id = ANY($1::uuid[])`, [contactosABorrar]);
     console.log(`   contacts            ${ct.rowCount}`);
 
     // Al final, cuando ya no queda ninguna conversacion usandolas.
