@@ -1,0 +1,100 @@
+# El botón «Desplegar»: sube la bandeja al servidor sin necesitar el computador
+# del escritorio. Se usa desde github.com → Actions → Desplegar → Run workflow.
+#
+# Corre el mismo despliegue/subir.sh de siempre, así que no hay dos formas de
+# desplegar que puedan quedar distintas. Ver despliegue/LEEME.md.
+
+name: Desplegar
+
+on:
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: >-
+          «probar» compila y verifica la conexión sin tocar nada (se puede en
+          horario de atención). «desplegar» sube la versión y reinicia el
+          servicio: fuera de horario.
+        type: choice
+        options:
+          - probar
+          - desplegar
+        # Lo seguro por defecto: un clic distraído prueba, no despliega.
+        default: probar
+
+# Dos despliegues a la vez se pisarían los directorios en el servidor. El segundo
+# espera a que termine el primero; no lo cancela, porque cortar uno a la mitad es
+# peor que esperar.
+concurrency:
+  group: produccion
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  desplegar:
+    name: ${{ inputs.modo == 'desplegar' && 'Desplegar a producción' || 'Probar sin tocar nada' }}
+    # Sólo main: desplegar una rama a medio hacer es la forma más fácil de romper
+    # producción sin darse cuenta.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: produccion
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # La misma versión que corre en el servidor: compilar con otra puede dar un
+      # build que allá no arranca.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      - name: Dependencias
+        run: |
+          npm ci --no-audit --no-fund
+          npm ci --prefix web --no-audit --no-fund
+
+      - name: Llave y huella del servidor
+        env:
+          LLAVE: ${{ secrets.SSH_WHATSWV }}
+        run: |
+          if [ -z "$LLAVE" ]; then
+            echo "::error::Falta el secret SSH_WHATSWV. Los pasos están en despliegue/LEEME.md."
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # Sin retornos de carro y con salto final: OpenSSH rechaza la llave si
+          # quedó pegada desde Windows o le falta la última línea.
+          printf '%s\n' "$LLAVE" | tr -d '\r' > ~/.ssh/whatswv-github
+          chmod 600 ~/.ssh/whatswv-github
+
+          # La huella del servidor, fijada acá y verificada en cada conexión. No se
+          # le pregunta al servidor cuál es: eso le creería a cualquiera que
+          # contestara en esta IP. Si algún día se reinstala el droplet, cambia la
+          # huella y hay que actualizar esta línea (despliegue/LEEME.md).
+          echo '107.170.72.128 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPNts7HCntSIS/YNN3qqVaMfdM3NPYjUg+WAdNuMWOSZ' > ~/.ssh/conocidos
+
+      - name: ${{ inputs.modo == 'desplegar' && 'Desplegar' || 'Probar' }}
+        env:
+          MODO: ${{ inputs.modo }}
+        run: |
+          export SSH_LLAVE="$HOME/.ssh/whatswv-github"
+          export SSH_CONOCIDOS="$HOME/.ssh/conocidos"
+
+          if [ "$MODO" = "desplegar" ]; then
+            bash despliegue/subir.sh root@107.170.72.128
+          else
+            bash despliegue/subir.sh root@107.170.72.128 --probar
+          fi
+
+      # La máquina de GitHub se descarta al terminar, pero la llave no tiene por
+      # qué quedar en disco ni un minuto más de lo necesario.
+      - name: Borrar la llave
+        if: always()
+        run: rm -f ~/.ssh/whatswv-github

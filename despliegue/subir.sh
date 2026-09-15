@@ -3,6 +3,10 @@
 # Sube una versión nueva al servidor.
 #
 #   bash despliegue/subir.sh root@159.65.1.2
+#   bash despliegue/subir.sh root@159.65.1.2 --probar   compila y verifica, no sube nada
+#
+# Tambien lo corre el boton "Desplegar" de GitHub Actions
+# (.github/workflows/desplegar.yml), para poder desplegar sin este computador.
 #
 # Compila acá y sube lo ya construido. En el servidor no se compila nada: un
 # droplet de 1 GB no tiene memoria para un build de TypeScript, y aunque la
@@ -12,8 +16,26 @@ set -euo pipefail
 
 DESTINO="${1:-}"
 if [ -z "$DESTINO" ]; then
-  echo "uso: bash despliegue/subir.sh root@LA_IP" >&2
+  echo "uso: bash despliegue/subir.sh root@LA_IP [--probar]" >&2
   exit 1
+fi
+
+PROBAR=false
+[ "${2:-}" = "--probar" ] && PROBAR=true
+
+# La llave y como se verifica el servidor.
+#
+# En el computador del escritorio, como siempre: su llave, y el servidor se acepta
+# sin preguntar. GitHub Actions pasa las dos cosas por variables: una llave propia
+# que sale de un Secret, y la huella del servidor fijada en el flujo. Ahi si se
+# verifica, porque el paquete sale de una maquina que no es nuestra hacia lo que
+# conteste en esa IP, y sin verificar se lo entregaria a cualquiera que se hiciera
+# pasar por el servidor.
+LLAVE="${SSH_LLAVE:-$HOME/.ssh/whatswv}"
+if [ -n "${SSH_CONOCIDOS:-}" ]; then
+  SSH_OPC=(-i "$LLAVE" -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$SSH_CONOCIDOS")
+else
+  SSH_OPC=(-i "$LLAVE" -o StrictHostKeyChecking=no)
 fi
 
 DIRECTORIO=/opt/whatswv
@@ -34,12 +56,25 @@ PAQUETE="${TMPDIR:-/tmp}/whatswv-$$.tar.gz"
 # exactamente las versiones que probaste, no las que hubiera hoy.
 tar -czf "$PAQUETE" dist drizzle package.json package-lock.json
 
+if $PROBAR; then
+  # Todo lo que puede fallar antes de tocar el servidor —compilar, empaquetar, la
+  # llave, la huella— sin cambiar nada alla. Es lo que se corre de dia, en horario
+  # de atencion, para saber que el despliegue de la noche va a andar.
+  echo "==> probando la conexion (no se sube nada)"
+  ssh "${SSH_OPC[@]}" "$DESTINO" 'test -f /opt/whatswv/.env && echo "    .env del servidor: esta" && echo "    servicio: $(systemctl is-active whatswv)" && echo "    node: $(node --version)" && echo "    disco: $(df -h / | tail -1 | tr -s " " | cut -d" " -f5) usado"'
+  TAMANO="$(du -h "$PAQUETE" | cut -f1)"
+  rm -f "$PAQUETE"
+  echo ""
+  echo "prueba ok: compila, empaqueta ($TAMANO) y el servidor contesta. No se cambio nada."
+  exit 0
+fi
+
 echo "==> subiendo ($(du -h "$PAQUETE" | cut -f1))"
-scp -i "$HOME/.ssh/whatswv" -o StrictHostKeyChecking=no -q "$PAQUETE" "$DESTINO:/tmp/whatswv.tar.gz"
+scp "${SSH_OPC[@]}" -q "$PAQUETE" "$DESTINO:/tmp/whatswv.tar.gz"
 rm -f "$PAQUETE"
 
 echo "==> instalando en el servidor"
-ssh -i "$HOME/.ssh/whatswv" -o StrictHostKeyChecking=no "$DESTINO" bash -euo pipefail <<REMOTO
+ssh "${SSH_OPC[@]}" "$DESTINO" bash -euo pipefail <<REMOTO
 DIRECTORIO=$DIRECTORIO
 
 if [ ! -f "\$DIRECTORIO/.env" ]; then
@@ -82,13 +117,13 @@ REMOTO
 
 echo "==> comprobando"
 sleep 3
-if ssh -i "$HOME/.ssh/whatswv" -o StrictHostKeyChecking=no "$DESTINO" 'systemctl is-active --quiet whatswv'; then
+if ssh "${SSH_OPC[@]}" "$DESTINO" 'systemctl is-active --quiet whatswv'; then
   echo ""
   echo "desplegado. Últimas líneas del log:"
-  ssh -i "$HOME/.ssh/whatswv" -o StrictHostKeyChecking=no "$DESTINO" 'journalctl -u whatswv -n 12 --no-pager -o cat'
+  ssh "${SSH_OPC[@]}" "$DESTINO" 'journalctl -u whatswv -n 12 --no-pager -o cat'
 else
   echo ""
   echo "EL SERVICIO NO ARRANCÓ. Qué dice el log:" >&2
-  ssh -i "$HOME/.ssh/whatswv" -o StrictHostKeyChecking=no "$DESTINO" 'journalctl -u whatswv -n 40 --no-pager -o cat' >&2
+  ssh "${SSH_OPC[@]}" "$DESTINO" 'journalctl -u whatswv -n 40 --no-pager -o cat' >&2
   exit 1
 fi

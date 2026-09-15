@@ -83,6 +83,88 @@ bash despliegue/subir.sh root@107.170.72.128
 Compila acá, sube el resultado, aplica las migraciones y reinicia. Si una
 migración falla, corta antes de tocar la versión que está andando.
 
+Para verificar sin cambiar nada —se puede en horario de atención—:
+
+```bash
+bash despliegue/subir.sh root@107.170.72.128 --probar
+```
+
+Compila, empaqueta y comprueba que el servidor contesta, que tiene su `.env` y que el
+servicio está activo. No sube nada.
+
+## Desplegar desde GitHub, sin este computador
+
+El botón **Desplegar** corre el mismo `subir.sh` en una máquina de GitHub, así que se
+puede desplegar desde el navegador o el celular aunque el computador del escritorio
+esté apagado.
+
+**Usarlo:** github.com → el repositorio → **Actions** → **Desplegar** → **Run workflow**,
+y elegir el modo:
+
+- **probar** (el que viene marcado): compila y verifica la conexión. No toca nada.
+- **desplegar**: sube la versión y reinicia el servicio unos segundos. Fuera de
+  horario.
+
+Sólo despliega desde `main`, y dos despliegues a la vez se esperan en vez de pisarse.
+
+### Dejarlo andando (una sola vez)
+
+Usa una llave propia, **no** la de este computador: así se revoca sin tocar la otra,
+y la llave del escritorio nunca sale de acá. Ya está creada en `~/.ssh/whatswv-github`.
+
+**1. Autorizarla en el servidor.** Desde la terminal de este computador:
+
+```bash
+bash -c "cat ~/.ssh/whatswv-github.pub | ssh -i ~/.ssh/whatswv root@107.170.72.128 'cat >> /root/.ssh/authorized_keys'"
+```
+
+**2. Guardarla en GitHub.** Copiarla al portapapeles sin que se vea en pantalla:
+
+```bash
+bash -c "clip < ~/.ssh/whatswv-github"
+```
+
+En github.com → el repositorio → **Settings** → **Secrets and variables** →
+**Actions** → **New repository secret**. Nombre `SSH_WHATSWV`, y en el valor, pegar.
+GitHub la guarda cifrada y no la vuelve a mostrar nunca, ni a quien la cargó.
+
+**3. Probar.** Actions → Desplegar → Run workflow con **probar**. Tiene que terminar en
+verde con «prueba ok». Si falla en «Llave y huella del servidor», el secret no está o
+tiene otro nombre; si falla al conectar, falta el paso 1.
+
+### Qué protege y qué no
+
+- **La llave** vive cifrada en los Secrets. Ni el flujo ni el log la muestran, y se
+  borra del disco de la máquina de GitHub al terminar.
+- **El servidor** se verifica contra su huella, fijada en
+  `.github/workflows/desplegar.yml`. Si algo contesta en esa IP haciéndose pasar por
+  él, la conexión se corta antes de mandarle nada.
+- **Quién puede desplegar:** cualquiera con permiso de escritura en el repositorio.
+  El repositorio es público, así que cualquiera puede *leer* el flujo, pero no
+  correrlo ni ver el secret. Aun así conviene hacerlo privado (Settings → General):
+  hoy se ven la IP, el dominio y cómo se despliega.
+
+### Revocar la llave
+
+Si se filtró, o para dejar de usar el botón:
+
+```bash
+ssh -i ~/.ssh/whatswv root@107.170.72.128 "sed -i '/github-actions-desplegar@ChatwasVW/d' /root/.ssh/authorized_keys"
+```
+
+Y borrar el secret `SSH_WHATSWV` en GitHub.
+
+### Si se reinstala el droplet
+
+Cambia la huella del servidor y el botón se niega a conectar —que es lo que tiene que
+hacer—. Hay que poner la nueva en `.github/workflows/desplegar.yml`, comprobando
+que la que se ve desde afuera sea la misma que el servidor dice tener:
+
+```bash
+ssh-keyscan -t ed25519 107.170.72.128
+ssh -i ~/.ssh/whatswv root@107.170.72.128 'ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub'
+```
+
 ## Qué cambia en el `.env` de producción
 
 | Variable | Local | Servidor |
