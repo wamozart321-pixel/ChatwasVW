@@ -389,115 +389,224 @@ interface Mensaje {
   archivo?: ArchivoExportado;
 }
 
+/** Un chat listo para guardar: ya con el teléfono normalizado. */
+interface ChatAGuardar {
+  telefono: string;
+  nombre: string | null;
+  mensajes: Mensaje[];
+}
+
 /**
- * Mete un chat completo: el contacto, la conversación y sus mensajes.
+ * Cuántas filas van en cada sentencia.
+ *
+ * Cada consulta a Neon es un viaje de ida y vuelta de unos 110 ms desde acá, y ese
+ * viaje es lo que tarda, no la base. De a un mensaje, 60.000 eran casi dos horas de
+ * esperar la red; de a 500, son 120 viajes. Más grande no conviene: Postgres acepta
+ * hasta 65.535 parámetros por sentencia y cada mensaje usa 12.
+ */
+const LOTE = 500;
+
+function enLotes<T>(lista: T[], tamano = LOTE): T[][] {
+  const lotes: T[][] = [];
+  for (let i = 0; i < lista.length; i += tamano) lotes.push(lista.slice(i, i + tamano));
+  return lotes;
+}
+
+/** `($1, $2, $3), ($4, $5, $6)…` para `filas` filas de `columnas` columnas. */
+function marcadores(filas: number, columnas: number): string {
+  const grupos: string[] = [];
+  for (let f = 0; f < filas; f++) {
+    const base = f * columnas;
+    grupos.push('(' + Array.from({ length: columnas }, (_, c) => `$${base + c + 1}`).join(', ') + ')');
+  }
+  return grupos.join(', ');
+}
+
+/**
+ * El identificador de un mensaje importado.
+ *
+ * Calculado a partir del mensaje, no al azar: así correr el importador dos veces
+ * con el mismo archivo da los mismos identificadores y el ON CONFLICT lo absorbe,
+ * en vez de duplicar el historial. Alguien va a reimportar —porque agregó un chat a
+ * la carpeta, o porque no supo si la primera vez funcionó—. El nombre del archivo
+ * entra en la huella: dos fotos del mismo segundo sin pie son dos mensajes.
+ */
+function idImportado(telefono: string, m: Mensaje): string {
+  return (
+    'wamid.IMPORTADO' +
+    createHash('sha1')
+      .update(`${telefono}|${m.cuando.toISOString()}|${m.mio}|${m.texto}|${m.archivo?.nombre ?? ''}`)
+      .digest('hex')
+  );
+}
+
+/**
+ * Mete los chats: contactos, conversaciones y mensajes, todo en lotes.
+ *
+ * Antes era un chat por vez y un mensaje por consulta. Con los 5.000 clientes y
+ * 60.000 mensajes de la migración eso eran casi tres horas, casi todas esperando
+ * la red, y con la base despierta todo ese tiempo. Ahora son unos pocos cientos de
+ * consultas.
+ *
+ * Si se corta a la mitad no queda nada roto: cada paso es idempotente —los
+ * contactos por su wa_id, las conversaciones se reusan, los mensajes por su
+ * identificador calculado—, así que volver a correrlo completa lo que faltó.
  *
  * `archivos` es la carpeta que dejó el exportador, o null si no se pidieron. Con
- * carpeta, cada mensaje que trae archivo lo copia al almacén y queda apuntando
- * ahí; sin carpeta, entra como texto y el que no tenía pie de foto se cuenta como
- * salteado.
+ * carpeta, cada mensaje nuevo que trae archivo lo copia al almacén y queda
+ * apuntando ahí.
  */
-async function guardarChat(
-  telefono: string,
-  nombre: string | null,
-  mensajes: Mensaje[],
+async function guardarChats(
+  entrada: ChatAGuardar[],
   archivos: { origen: string; raiz: string } | null,
-) {
-  const { rows: contacto } = await pool.query<{ id: string }>(
-    `INSERT INTO contacts (wa_id, telefono, nombre) VALUES ($1, $1, $2)
-     ON CONFLICT (wa_id) DO UPDATE SET nombre = coalesce(contacts.nombre, EXCLUDED.nombre)
-     RETURNING id`,
-    [telefono, nombre],
-  );
-  const contactId = contacto[0]!.id;
+): Promise<{ nuevos: number; yaEstaban: number; copiados: number }> {
+  // El mismo teléfono dos veces en una sentencia hace fallar el ON CONFLICT
+  // ("cannot affect row a second time"), así que se junta antes.
+  const porTelefono = new Map<string, ChatAGuardar>();
+  for (const chat of entrada) {
+    const ya = porTelefono.get(chat.telefono);
+    if (!ya) porTelefono.set(chat.telefono, { ...chat, mensajes: [...chat.mensajes] });
+    else {
+      ya.nombre = ya.nombre ?? chat.nombre;
+      ya.mensajes.push(...chat.mensajes);
+    }
+  }
+  const chats = [...porTelefono.values()];
+
+  // --- contactos ---
+  const contactoDe = new Map<string, string>();
+
+  for (const lote of enLotes(chats)) {
+    const { rows } = await pool.query<{ id: string; wa_id: string }>(
+      `INSERT INTO contacts (wa_id, telefono, nombre)
+       VALUES ${marcadores(lote.length, 3)}
+       ON CONFLICT (wa_id) DO UPDATE SET nombre = coalesce(contacts.nombre, EXCLUDED.nombre)
+       RETURNING id, wa_id`,
+      lote.flatMap((c) => [c.telefono, c.telefono, c.nombre]),
+    );
+    for (const r of rows) contactoDe.set(r.wa_id, r.id);
+  }
 
   /*
-   * La conversacion queda resuelta y con la ventana cerrada.
+   * --- conversaciones ---
    *
-   * Son mensajes viejos: dejarla abierta la pondria arriba en la bandeja como
-   * si un cliente estuviera esperando respuesta, y WhatsApp igual no dejaria
-   * escribir — la ventana de 24 h la abre un mensaje de verdad, no una fila que
-   * pusimos nosotros.
+   * Quedan resueltas y con la ventana cerrada. Son mensajes viejos: abiertas
+   * aparecerían arriba en la bandeja como si un cliente estuviera esperando, y
+   * WhatsApp igual no dejaría escribir —la ventana de 24 h la abre un mensaje de
+   * verdad, no una fila que pusimos nosotros—.
    *
-   * Se reusa la que ya haya de ese contacto en vez de crear otra: correr el
-   * importador dos veces con el mismo archivo dejaba el historial duplicado en
-   * dos conversaciones, y eso alguien lo iba a hacer.
+   * Se reusa la que ya tenga el contacto en vez de crear otra: reimportar dejaba el
+   * historial repartido en dos conversaciones del mismo cliente.
    */
-  const { rows: existente } = await pool.query<{ id: string }>(
-    'SELECT id FROM conversations WHERE contact_id = $1 ORDER BY created_at LIMIT 1',
-    [contactId],
+  const conversacionDe = new Map<string, string>();
+  const idsDeContacto = [...contactoDe.values()];
+
+  for (const lote of enLotes(idsDeContacto, 1000)) {
+    const { rows } = await pool.query<{ id: string; contact_id: string }>(
+      `SELECT DISTINCT ON (contact_id) id, contact_id
+         FROM conversations
+        WHERE contact_id = ANY($1::uuid[])
+        ORDER BY contact_id, created_at`,
+      [lote],
+    );
+    for (const r of rows) conversacionDe.set(r.contact_id, r.id);
+  }
+
+  const sinConversacion = chats.filter((c) => !conversacionDe.has(contactoDe.get(c.telefono)!));
+
+  for (const lote of enLotes(sinConversacion)) {
+    const { rows } = await pool.query<{ id: string; contact_id: string }>(
+      `INSERT INTO conversations (contact_id, estado, unread_count, last_inbound_at)
+       VALUES ${marcadores(lote.length, 2).replace(/\((\$\d+), (\$\d+)\)/g, "($1, 'resuelto', 0, $2)")}
+       RETURNING id, contact_id`,
+      lote.flatMap((c) => [
+        contactoDe.get(c.telefono)!,
+        c.mensajes.reduce((max, m) => (m.cuando > max ? m.cuando : max), new Date(0)),
+      ]),
+    );
+    for (const r of rows) conversacionDe.set(r.contact_id, r.id);
+  }
+
+  // --- mensajes ---
+  const filas = chats.flatMap((c) =>
+    c.mensajes.map((m) => ({
+      conversationId: conversacionDe.get(contactoDe.get(c.telefono)!)!,
+      waId: idImportado(c.telefono, m),
+      m,
+    })),
   );
 
-  let conversationId = existente[0]?.id;
+  let nuevos = 0;
+  let yaEstaban = 0;
+  let copiados = 0;
+  let hechos = 0;
 
-  if (!conversationId) {
-    const { rows: creada } = await pool.query<{ id: string }>(
-      `INSERT INTO conversations (contact_id, estado, unread_count, last_inbound_at)
-       VALUES ($1, 'resuelto', 0, $2)
-       RETURNING id`,
-      [contactId, mensajes.at(-1)?.cuando ?? new Date()],
-    );
-    conversationId = creada[0]!.id;
-  }
-
-  for (const m of mensajes) {
-    // Calculado a partir del mensaje, no al azar: asi correr el importador dos
-    // veces con el mismo archivo da los mismos identificadores y el ON CONFLICT
-    // lo absorbe, en vez de duplicar el historial. Alguien va a reimportar —
-    // porque agrego un chat a la carpeta, o porque no supo si la primera vez
-    // funciono. El nombre del archivo entra en la huella: dos fotos del mismo
-    // segundo sin pie de foto son dos mensajes distintos.
-    const waId =
-      'wamid.IMPORTADO' +
-      createHash('sha1')
-        .update(`${telefono}|${m.cuando.toISOString()}|${m.mio}|${m.texto}|${m.archivo?.nombre ?? ''}`)
-        .digest('hex');
-
+  for (const lote of enLotes(filas)) {
     /*
-     * Si el mensaje ya estaba, no se copia el archivo.
+     * Primero, cuáles ya estaban.
      *
-     * El ON CONFLICT evita la fila repetida, pero no el archivo: sin esta
-     * consulta, reimportar dejaba otra copia de cada foto en el almacen, con
-     * otro uuid y sin nadie que la mirara.
+     * El ON CONFLICT evita la fila repetida pero no el archivo: sin esta consulta,
+     * reimportar dejaba otra copia de cada foto en el almacén, con otro uuid y sin
+     * nadie que la mirara. Es una consulta por lote, no una por mensaje.
      */
-    const copiar = archivos && m.archivo;
-    if (copiar) {
-      const { rowCount } = await pool.query('SELECT 1 FROM messages WHERE wa_message_id = $1', [waId]);
-      if (rowCount) continue;
+    const { rows: existentes } = await pool.query<{ wa_message_id: string }>(
+      'SELECT wa_message_id FROM messages WHERE wa_message_id = ANY($1::text[])',
+      [lote.map((f) => f.waId)],
+    );
+    const ya = new Set(existentes.map((r) => r.wa_message_id));
+    const aInsertar = lote.filter((f) => !ya.has(f.waId));
+    yaEstaban += lote.length - aInsertar.length;
+
+    if (aInsertar.length) {
+      const valores = aInsertar.flatMap(({ conversationId, waId, m }) => {
+        // El archivo se copia justo antes de insertar su fila. Si el proceso se
+        // cae entre una cosa y la otra queda una copia huérfana, y al reimportar
+        // se copia de nuevo: se pierde un poco de disco, nunca un mensaje.
+        const mediaUrl =
+          archivos && m.archivo
+            ? copiarAlAlmacen(join(archivos.origen, m.archivo.nombre), m.archivo, archivos.raiz)
+            : null;
+        if (mediaUrl) copiados++;
+
+        // Con archivo, el tipo es el del archivo y el texto es su pie: igual que
+        // guarda la bandeja uno que llega de verdad por el webhook.
+        return [
+          conversationId,
+          waId,
+          m.mio ? 'out' : 'in',
+          mediaUrl ? m.archivo!.clase : 'text',
+          m.texto || (mediaUrl ? (m.archivo!.original ?? null) : null),
+          mediaUrl ? m.texto || null : null,
+          m.cuando,
+          mediaUrl ? m.archivo!.mime : null,
+          mediaUrl,
+          mediaUrl ? m.archivo!.original : null,
+          mediaUrl ? m.archivo!.bytes : null,
+          JSON.stringify({ importado: true }),
+        ];
+      });
+
+      const { rowCount } = await pool.query(
+        `INSERT INTO messages
+           (conversation_id, wa_message_id, direccion, tipo, cuerpo, caption, wa_timestamp,
+            media_mime, media_url, media_nombre, media_tamano, raw, status, status_rank)
+         VALUES ${marcadores(aInsertar.length, 12).replace(/\)/g, ", 'delivered', 2)")}
+         ON CONFLICT (wa_message_id) DO NOTHING`,
+        valores,
+      );
+      nuevos += rowCount ?? 0;
     }
 
-    let mediaUrl: string | null = null;
-    if (copiar) {
-      mediaUrl = copiarAlAlmacen(join(archivos!.origen, m.archivo!.nombre), m.archivo!, archivos!.raiz);
-    }
-
-    // Con archivo el tipo es el del archivo y el texto es su pie, que es como lo
-    // guarda la bandeja cuando llega uno de verdad por el webhook.
-    const tipo = mediaUrl ? m.archivo!.clase : 'text';
-    const cuerpo = m.texto || (mediaUrl ? (m.archivo!.original ?? null) : null);
-
-    await pool.query(
-      `INSERT INTO messages
-         (conversation_id, wa_message_id, direccion, tipo, cuerpo, caption, status, status_rank,
-          wa_timestamp, media_mime, media_url, media_nombre, media_tamano, raw)
-       VALUES ($1, $2, $3, $4, $5, $6, 'delivered', 2, $7, $8, $9, $10, $11, $12)
-       ON CONFLICT (wa_message_id) DO NOTHING`,
-      [
-        conversationId,
-        waId,
-        m.mio ? 'out' : 'in',
-        tipo,
-        cuerpo,
-        mediaUrl ? m.texto || null : null,
-        m.cuando,
-        mediaUrl ? m.archivo!.mime : null,
-        mediaUrl,
-        mediaUrl ? m.archivo!.original : null,
-        mediaUrl ? m.archivo!.bytes : null,
-        JSON.stringify({ importado: true }),
-      ],
+    hechos += lote.length;
+    // Una línea por lote: con 60.000 mensajes son 120 renglones, que alcanza para
+    // ver que avanza sin tapar el resumen.
+    process.stdout.write(
+      `\r  guardando ${hechos.toLocaleString('es')} de ${filas.length.toLocaleString('es')}…   `,
     );
   }
+
+  if (filas.length) process.stdout.write('\n');
+  return { nuevos, yaEstaban, copiados };
 }
 
 // --- mensajes: el .json de la herramienta ------------------------------------
@@ -645,6 +754,7 @@ async function importarMensajes(archivo: string) {
   console.log('');
 
   let total = 0;
+  const aGuardar: ChatAGuardar[] = [];
   let conArchivo = 0;
   let faltantes = 0;
   let sinNada = 0;
@@ -713,7 +823,7 @@ async function importarMensajes(archivo: string) {
     );
 
     total += mensajes.length;
-    if (deVerdad) await guardarChat(telefono, chat.nombre?.trim() || null, mensajes, archivos);
+    aGuardar.push({ telefono, nombre: chat.nombre?.trim() || null, mensajes });
   }
 
   console.log(`\n  ${total} mensajes en total` + (conArchivo ? `, ${conArchivo} con archivo` : ''));
@@ -722,6 +832,17 @@ async function importarMensajes(archivo: string) {
     console.log(`  ${faltantes} mensajes nombran un archivo que no está en la carpeta: entran sin él`);
   }
   if (sinNada) console.log(`  ${sinNada} quedaron fuera: sin texto y sin archivo`);
+
+  // Todo junto al final y en lotes: ver guardarChats.
+  if (deVerdad && aGuardar.length) {
+    console.log('');
+    const r = await guardarChats(aGuardar, archivos);
+    console.log(
+      `  ${r.nuevos} mensajes nuevos` +
+        (r.yaEstaban ? `, ${r.yaEstaban} ya estaban` : '') +
+        (r.copiados ? `, ${r.copiados} archivos copiados` : ''),
+    );
+  }
 
   if (!deVerdad) {
     console.log('\n  SIMULACRO. Para hacerlo de verdad, agrega --de-verdad');
@@ -820,6 +941,7 @@ async function importarChats(carpeta: string, yo: string) {
   console.log(`\n  ${archivos.length} archivo(s) de chat\n`);
 
   let totalMensajes = 0;
+  const aGuardar: ChatAGuardar[] = [];
 
   for (const archivo of archivos) {
     const lineas = leerChat(archivo);
@@ -847,16 +969,20 @@ async function importarChats(carpeta: string, yo: string) {
     }
 
     totalMensajes += lineas.length;
-    if (!deVerdad) continue;
 
-    // Sin archivos: la exportación del propio WhatsApp se pide «Sin archivos»,
-    // y lo que trae es un .txt con «<Multimedia omitido>» donde iba la foto.
-    await guardarChat(
+    aGuardar.push({
       telefono,
-      deEllos[0] ?? null,
-      lineas.map((l) => ({ cuando: l.cuando, mio: l.quien === yo, texto: l.texto })),
-      null,
-    );
+      nombre: deEllos[0] ?? null,
+      mensajes: lineas.map((l) => ({ cuando: l.cuando, mio: l.quien === yo, texto: l.texto })),
+    });
+  }
+
+  // Sin archivos: la exportación del propio WhatsApp se pide «Sin archivos», y lo
+  // que trae es un .txt con «<Multimedia omitido>» donde iba la foto.
+  if (deVerdad && aGuardar.length) {
+    console.log('');
+    const r = await guardarChats(aGuardar, null);
+    console.log(`  ${r.nuevos} mensajes nuevos` + (r.yaEstaban ? `, ${r.yaEstaban} ya estaban` : ''));
   }
 
   console.log(`\n  ${totalMensajes} mensajes en total`);
