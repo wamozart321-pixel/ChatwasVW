@@ -387,6 +387,31 @@ interface Mensaje {
   mio: boolean;
   texto: string;
   archivo?: ArchivoExportado;
+  /**
+   * El texto tal como vino en el archivo, para calcular la identidad del mensaje.
+   *
+   * Cuando se limpia el texto —ver esMiniatura— la identidad tiene que seguir
+   * saliendo del original: si no, el mismo mensaje ya importado tendría otro id
+   * al reimportar, y entraría duplicado con el texto limpio al lado del sucio.
+   */
+  huella?: string;
+}
+
+/**
+ * ¿Es la miniatura de una imagen en base64, y no un texto?
+ *
+ * En un mensaje con foto, video o documento, WhatsApp Web guarda en el campo del
+ * texto la miniatura del archivo codificada en base64 —"/9j/4AAQ…", la firma de un
+ * JPEG—, y el pie va aparte. El exportador la tomaba como pie: en la primera
+ * migración venían 3.595 así, y cada una se veía como un chorro de letras debajo
+ * de la foto y en la vista previa del chat.
+ *
+ * Se reconoce por el alfabeto: largo, y sólo letras, dígitos, "+", "/" y "=". Ningún
+ * texto escrito por una persona es así; los enlaces largos, que son lo más
+ * parecido, tienen ":" y "." y no entran.
+ */
+function esMiniatura(texto: string): boolean {
+  return texto.length >= 100 && /^[A-Za-z0-9+/=]+$/.test(texto);
 }
 
 /** Un chat listo para guardar: ya con el teléfono normalizado. */
@@ -423,6 +448,27 @@ function marcadores(filas: number, columnas: number): string {
 }
 
 /**
+ * Las fechas que ordenan la bandeja: la del último mensaje y la del último que
+ * mandó el cliente.
+ *
+ * La lista de chats ordena por `last_message_at`, como WhatsApp: el que habló
+ * último, arriba. El importador no la llenaba, y los 1.456 clientes del celular
+ * quedaban todos al fondo y en cualquier orden, detrás hasta del chat más viejo de
+ * la bandeja. Se vio al mirar el ensayo en la pantalla, no en las consultas.
+ */
+function fechasDe(c: ChatAGuardar): { ultimo: Date | null; ultimoDelCliente: Date | null } {
+  let ultimo: Date | null = null;
+  let ultimoDelCliente: Date | null = null;
+
+  for (const m of c.mensajes) {
+    if (!ultimo || m.cuando > ultimo) ultimo = m.cuando;
+    if (!m.mio && (!ultimoDelCliente || m.cuando > ultimoDelCliente)) ultimoDelCliente = m.cuando;
+  }
+
+  return { ultimo, ultimoDelCliente };
+}
+
+/**
  * El identificador de un mensaje importado.
  *
  * Calculado a partir del mensaje, no al azar: así correr el importador dos veces
@@ -435,7 +481,7 @@ function idImportado(telefono: string, m: Mensaje): string {
   return (
     'wamid.IMPORTADO' +
     createHash('sha1')
-      .update(`${telefono}|${m.cuando.toISOString()}|${m.mio}|${m.texto}|${m.archivo?.nombre ?? ''}`)
+      .update(`${telefono}|${m.cuando.toISOString()}|${m.mio}|${m.huella ?? m.texto}|${m.archivo?.nombre ?? ''}`)
       .digest('hex')
   );
 }
@@ -516,13 +562,13 @@ async function guardarChats(
 
   for (const lote of enLotes(sinConversacion)) {
     const { rows } = await pool.query<{ id: string; contact_id: string }>(
-      `INSERT INTO conversations (contact_id, estado, unread_count, last_inbound_at)
-       VALUES ${marcadores(lote.length, 2).replace(/\((\$\d+), (\$\d+)\)/g, "($1, 'resuelto', 0, $2)")}
+      `INSERT INTO conversations (contact_id, estado, unread_count, last_inbound_at, last_message_at)
+       VALUES ${marcadores(lote.length, 3).replace(/\((\$\d+), (\$\d+), (\$\d+)\)/g, "($1, 'resuelto', 0, $2, $3)")}
        RETURNING id, contact_id`,
-      lote.flatMap((c) => [
-        contactoDe.get(c.telefono)!,
-        c.mensajes.reduce((max, m) => (m.cuando > max ? m.cuando : max), new Date(0)),
-      ]),
+      lote.flatMap((c) => {
+        const { ultimo, ultimoDelCliente } = fechasDe(c);
+        return [contactoDe.get(c.telefono)!, ultimoDelCliente, ultimo];
+      }),
     );
     for (const r of rows) conversacionDe.set(r.contact_id, r.id);
   }
@@ -606,6 +652,35 @@ async function guardarChats(
   }
 
   if (filas.length) process.stdout.write('\n');
+
+  /*
+   * Las fechas de las conversaciones que ya existían.
+   *
+   * Un cliente que ya estaba en la bandeja recibe su historial en su conversación de
+   * siempre, y una importación anterior pudo haber dejado las fechas vacías. Con
+   * greatest() nada va para atrás: si la bandeja ya tiene algo más nuevo que lo
+   * importado —lo normal—, queda como estaba.
+   */
+  for (const lote of enLotes(chats)) {
+    const conFecha = lote
+      .map((c) => ({ id: conversacionDe.get(contactoDe.get(c.telefono)!)!, ...fechasDe(c) }))
+      .filter((f) => f.ultimo);
+    if (!conFecha.length) continue;
+
+    const valores = conFecha
+      .map((_, i) => '(' + [i * 3 + 1, i * 3 + 2, i * 3 + 3].map((n, j) => '$' + n + (j === 0 ? '::uuid' : '::timestamptz')).join(', ') + ')')
+      .join(', ');
+
+    await pool.query(
+      `UPDATE conversations c
+          SET last_message_at = greatest(c.last_message_at, v.ultimo),
+              last_inbound_at = greatest(c.last_inbound_at, v.ultimo_del_cliente)
+         FROM (VALUES ${valores}) AS v(id, ultimo, ultimo_del_cliente)
+        WHERE c.id = v.id`,
+      conFecha.flatMap((f) => [f.id, f.ultimo, f.ultimoDelCliente]),
+    );
+  }
+
   return { nuevos, yaEstaban, copiados };
 }
 
@@ -758,6 +833,7 @@ async function importarMensajes(archivo: string) {
   let conArchivo = 0;
   let faltantes = 0;
   let sinNada = 0;
+  let miniaturas = 0;
 
   for (const chat of chats) {
     const telefono = aE164(chat.telefono ?? '');
@@ -790,10 +866,14 @@ async function importarMensajes(archivo: string) {
 
         if (suelto && archivos && !presente) faltantes++;
 
+        const crudo = (m.texto ?? '').trim();
+        if (esMiniatura(crudo)) miniaturas++;
+
         return {
           cuando: new Date(m.cuando ?? ''),
           mio: m.mio === true,
-          texto: (m.texto ?? '').trim(),
+          texto: esMiniatura(crudo) ? '' : crudo,
+          huella: crudo,
           ...(presente ? { archivo: presente } : {}),
         };
       })
@@ -830,6 +910,9 @@ async function importarMensajes(archivo: string) {
 
   if (faltantes) {
     console.log(`  ${faltantes} mensajes nombran un archivo que no está en la carpeta: entran sin él`);
+  }
+  if (miniaturas) {
+    console.log(`  ${miniaturas} textos eran la miniatura de un archivo en base64: se descartan`);
   }
   if (sinNada) console.log(`  ${sinNada} quedaron fuera: sin texto y sin archivo`);
 
