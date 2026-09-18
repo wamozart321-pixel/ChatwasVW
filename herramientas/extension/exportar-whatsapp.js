@@ -146,10 +146,33 @@
     return Number.isFinite(s) && s > 0 ? s : null;
   }
 
+  /**
+   * ¿Es la miniatura de un archivo en base64, y no un texto?
+   *
+   * En los mensajes con foto, video o documento, WhatsApp guarda en `body` la
+   * miniatura codificada —"/9j/4AAQ…"— y el pie en `caption`. Largo y sólo con el
+   * alfabeto de base64: ningún texto escrito por alguien es así.
+   */
+  function esMiniatura(t) {
+    return t.length >= 100 && /^[A-Za-z0-9+/=]+$/.test(t);
+  }
+
   /** El texto de un mensaje: el cuerpo, o el pie de foto si es multimedia. */
   function textoDe(fila) {
     const t = fila?.body ?? fila?.caption ?? fila?.text ?? '';
-    return typeof t === 'string' ? t.trim() : '';
+    const limpio = typeof t === 'string' ? t.trim() : '';
+    return esMiniatura(limpio) ? '' : limpio;
+  }
+
+  /**
+   * El pie de un mensaje con archivo. Nunca el body, que en esos mensajes trae la
+   * miniatura: tomarlo metió "/9j/4AAQ…" como pie de 3.595 archivos en la primera
+   * migración.
+   */
+  function textoDeArchivo(fila) {
+    const t = fila?.caption ?? '';
+    const limpio = typeof t === 'string' ? t.trim() : '';
+    return esMiniatura(limpio) ? '' : limpio;
   }
 
   /**
@@ -1102,8 +1125,8 @@
 
       for (const [j, m] of mensajes.entries()) {
         const segundos = cuandoDe(m);
-        const texto = textoDe(m);
         const clase = claseDe(m);
+        const texto = clase ? textoDeArchivo(m) : textoDe(m);
 
         // Antes se pedia texto si o si, y una conversacion de puras fotos se
         // perdia entera. Ahora entra si tiene texto O si trae archivo.
