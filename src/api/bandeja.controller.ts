@@ -59,8 +59,12 @@ export class BandejaController {
   }
 
   @Get('conversaciones/:id/mensajes')
-  hilo(@Param('id') id: string, @Query('antesDe') antesDe?: string) {
-    return this.bandeja.hilo(id, antesDe);
+  hilo(
+    @Param('id') id: string,
+    @Query('antesDe') antesDe?: string,
+    @Query('antesId') antesId?: string,
+  ) {
+    return this.bandeja.hilo(id, antesDe, antesId);
   }
 
   /**

@@ -9,6 +9,7 @@ import {
 import type { Socket } from 'socket.io-client';
 import {
   api,
+  PAGINA_HILO,
   conectarSocket,
   ErrorApi,
   sesion,
@@ -54,6 +55,9 @@ export default function App() {
   const [conversaciones, setConversaciones] = useState<Conversacion[]>([]);
   const [seleccionada, setSeleccionada] = useState<string | null>(null);
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
+  // Si arriba de lo cargado queda historia del cliente por traer.
+  const [hayAnteriores, setHayAnteriores] = useState(false);
+  const [cargandoAnteriores, setCargandoAnteriores] = useState(false);
   const [detalle, setDetalle] = useState<DetalleConversacion | null>(null);
   const [notas, setNotas] = useState<Nota[]>([]);
   const [asesores, setAsesores] = useState<Asesor[]>([]);
@@ -318,6 +322,37 @@ export default function App() {
 
   // --- hilo ----------------------------------------------------------------
 
+  /**
+   * Una página más de historia, hacia atrás.
+   *
+   * Antes el hilo mostraba los últimos 40 mensajes y ahí terminaba: no había forma
+   * de subir. Con conversaciones cortas no se notaba; con el historial importado
+   * del celular hay clientes con miles de mensajes, y lo de hace tres meses es
+   * justo lo que el asesor necesita ver cuando el cliente vuelve.
+   */
+  async function cargarAnteriores() {
+    const id = seleccionada;
+    const masViejo = mensajes[0];
+    if (!id || !masViejo || cargandoAnteriores) return;
+
+    setCargandoAnteriores(true);
+    try {
+      const pagina = await api.hilo(id, masViejo);
+      // Si el asesor cambió de chat mientras esperaba, esta página es de otro.
+      if (seleccionadaRef.current !== id) return;
+
+      setMensajes((prev) => {
+        const ya = new Set(prev.map((x) => x.id));
+        return [...pagina.filter((x) => !ya.has(x.id)), ...prev];
+      });
+      setHayAnteriores(pagina.length >= PAGINA_HILO);
+    } catch {
+      setAviso('No se pudieron traer los mensajes anteriores');
+    } finally {
+      setCargandoAnteriores(false);
+    }
+  }
+
   useEffect(() => {
     setEscribiendo([]);
     // Al cambiar de chat la cita se descarta: si no, se responderia en una
@@ -327,6 +362,7 @@ export default function App() {
 
     if (!seleccionada) {
       setMensajes([]);
+      setHayAnteriores(false);
       setDetalle(null);
       setNotas([]);
       return;
@@ -336,7 +372,9 @@ export default function App() {
     socketRef.current?.emit('ver', seleccionada);
 
     api.hilo(seleccionada).then((m) => {
-      if (vigente) setMensajes(m);
+      if (!vigente) return;
+      setMensajes(m);
+      setHayAnteriores(m.length >= PAGINA_HILO);
     });
     api.detalle(seleccionada).then((d) => {
       if (vigente) setDetalle(d);
@@ -775,6 +813,9 @@ export default function App() {
               <Hilo
                 mensajes={mensajes}
                 notas={notas}
+                hayAnteriores={hayAnteriores}
+                cargandoAnteriores={cargandoAnteriores}
+                onCargarAnteriores={() => void cargarAnteriores()}
                 onBorrarNota={borrarNota}
                 puedeBorrar={(n) => n.autorId === asesor.id || asesor.rol !== 'asesor'}
                 onEliminarMensaje={setPorEliminar}
@@ -923,7 +964,10 @@ export default function App() {
           onCerrar={() => setVerPlantillas(false)}
           onEnviada={() => {
             void cargarLista();
-            void api.hilo(seleccionada).then(setMensajes);
+            void api.hilo(seleccionada).then((m) => {
+              setMensajes(m);
+              setHayAnteriores(m.length >= PAGINA_HILO);
+            });
           }}
           onError={setAviso}
         />

@@ -128,6 +128,10 @@ export interface Cita {
 
 export interface Mensaje {
   id: string;
+  /** El hilo cruza las conversaciones del cliente: esto dice de cuál es. */
+  conversationId: string;
+  /** Traído del celular por el importador: historial, no se puede citar. */
+  importado: boolean;
   waMessageId: string | null;
   direccion: 'in' | 'out';
   tipo: string;
@@ -262,6 +266,12 @@ async function pedir<T>(ruta: string, init: RequestInit = {}): Promise<T> {
   return cuerpo as T;
 }
 
+/**
+ * Cuántos mensajes trae cada página del hilo. Tiene que ser el mismo PAGINA de
+ * src/api/bandeja.service.ts: una página llena quiere decir que puede haber más.
+ */
+export const PAGINA_HILO = 40;
+
 export const api = {
   login: (email: string, clave: string) =>
     pedir<{ token: string; asesor: Asesor }>('/auth/login', {
@@ -346,7 +356,15 @@ export const api = {
 
   detalle: (id: string) => pedir<DetalleConversacion>(`/conversaciones/${id}`),
 
-  hilo: (id: string) => pedir<Mensaje[]>(`/conversaciones/${id}/mensajes`),
+  /**
+   * Una página del hilo. Sin `antes`, la última; con `antes`, la anterior a ese
+   * mensaje. Van la fecha y el id porque varios mensajes comparten segundo.
+   */
+  hilo: (id: string, antes?: Pick<Mensaje, 'cuando' | 'id'>) =>
+    pedir<Mensaje[]>(
+      `/conversaciones/${id}/mensajes` +
+        (antes ? `?antesDe=${encodeURIComponent(antes.cuando)}&antesId=${antes.id}` : ''),
+    ),
 
   enviar: (id: string, texto: string, respondeA?: string | null) =>
     pedir<Mensaje>(`/conversaciones/${id}/mensajes`, {

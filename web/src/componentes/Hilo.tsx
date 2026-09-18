@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Cita, Mensaje, Nota } from '../api';
 import Media from './Media';
 
@@ -99,8 +99,9 @@ function HojaDeAcciones({
   onEliminar: () => void;
   onCerrar: () => void;
 }) {
-  // Sin wamid Meta no conoce el mensaje, asi que no se puede citar.
-  const sePuedeResponder = !mensaje.eliminado && !!mensaje.waMessageId;
+  // Sin wamid Meta no conoce el mensaje, asi que no se puede citar. Los
+  // importados tienen uno, pero inventado: Meta rechazaria la cita.
+  const sePuedeResponder = !mensaje.eliminado && !!mensaje.waMessageId && !mensaje.importado;
   const sePuedeReenviar = !mensaje.eliminado;
 
   const opciones = [
@@ -182,9 +183,23 @@ type Entrada =
   | { clase: 'mensaje'; cuando: string; mensaje: Mensaje }
   | { clase: 'nota'; cuando: string; nota: Nota };
 
+/** Una línea al centro del hilo: dónde empieza una conversación o el historial. */
+function Divisor({ texto }: { texto: string }) {
+  return (
+    <div className="my-5 flex items-center gap-3">
+      <div className="h-px flex-1 bg-slate-200" />
+      <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{texto}</span>
+      <div className="h-px flex-1 bg-slate-200" />
+    </div>
+  );
+}
+
 export default function Hilo({
   mensajes,
   notas,
+  hayAnteriores,
+  cargandoAnteriores,
+  onCargarAnteriores,
   onBorrarNota,
   puedeBorrar,
   onEliminarMensaje,
@@ -195,6 +210,10 @@ export default function Hilo({
 }: {
   mensajes: Mensaje[];
   notas: Nota[];
+  /** Si arriba de lo cargado queda historia por traer. */
+  hayAnteriores: boolean;
+  cargandoAnteriores: boolean;
+  onCargarAnteriores: () => void;
   onBorrarNota: (id: string) => void;
   puedeBorrar: (nota: Nota) => boolean;
   onEliminarMensaje: (m: Mensaje) => void;
@@ -205,6 +224,9 @@ export default function Hilo({
   onUsarDeFoto: (m: Mensaje) => void;
 }) {
   const finRef = useRef<HTMLDivElement>(null);
+  const cajaRef = useRef<HTMLDivElement>(null);
+  /** El alto del hilo justo antes de pedir anteriores, para no mover la vista. */
+  const altoAntes = useRef<number | null>(null);
   const [accionesDe, setAccionesDe] = useState<Mensaje | null>(null);
   const relojRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -227,12 +249,55 @@ export default function Hilo({
     relojRef.current = setTimeout(() => setAccionesDe(m), PULSACION_LARGA_MS);
   }
 
-  // Baja al ultimo mensaje al abrir el chat y cuando entra uno nuevo.
+  /*
+   * Baja al ultimo mensaje al abrir el chat y cuando entra uno nuevo.
+   *
+   * Se mira el ULTIMO mensaje y no la cantidad: al traer anteriores la cantidad
+   * sube, y bajar al fondo ahi le sacaba al asesor de la pantalla lo que acababa
+   * de pedir ver.
+   */
+  const ultimoId = mensajes.at(-1)?.id;
   useEffect(() => {
     finRef.current?.scrollIntoView({ block: 'end' });
-  }, [mensajes.length, notas.length]);
+  }, [ultimoId, notas.length]);
+
+  // Al sumar mensajes arriba, el contenido crece hacia arriba y el navegador deja
+  // la vista quieta en pixeles, o sea que lo que se estaba leyendo se corre para
+  // abajo. Se compensa con lo que crecio, antes de pintar, para que no salte.
+  useLayoutEffect(() => {
+    const caja = cajaRef.current;
+    if (!caja || altoAntes.current === null) return;
+    caja.scrollTop += caja.scrollHeight - altoAntes.current;
+    altoAntes.current = null;
+  }, [mensajes]);
+
+  function pedirAnteriores() {
+    altoAntes.current = cajaRef.current?.scrollHeight ?? null;
+    onCargarAnteriores();
+  }
 
   let ultimoDia = '';
+  let ultimaConversacion = '';
+  let ultimoImportado = false;
+
+  /**
+   * Dónde empieza cada parte de la historia del cliente.
+   *
+   * El hilo junta la conversación de hoy con las anteriores y con lo traído del
+   * celular; sin marcas, el asesor no sabe si lo que lee es de esta charla o de
+   * hace tres meses.
+   */
+  function marcaDe(m: Mensaje): string | null {
+    let marca: string | null = null;
+
+    if (m.importado && !ultimoImportado) marca = 'Historial traído del celular';
+    else if (ultimaConversacion && m.conversationId !== ultimaConversacion) marca = 'Nueva conversación';
+    else if (!m.importado && ultimoImportado) marca = 'En la bandeja';
+
+    ultimaConversacion = m.conversationId;
+    ultimoImportado = m.importado;
+    return marca;
+  }
 
   const entradas: Entrada[] = [
     ...mensajes.map((m): Entrada => ({ clase: 'mensaje', cuando: m.cuando, mensaje: m })),
@@ -247,7 +312,19 @@ export default function Hilo({
   ].sort((a, b) => new Date(a.cuando).getTime() - new Date(b.cuando).getTime());
 
   return (
-    <div className="flex-1 space-y-1 overflow-y-auto bg-slate-50 px-3 py-4 md:px-6">
+    <div ref={cajaRef} className="flex-1 space-y-1 overflow-y-auto bg-slate-50 px-3 py-4 md:px-6">
+      {hayAnteriores && (
+        <div className="mb-2 flex justify-center">
+          <button
+            onClick={pedirAnteriores}
+            disabled={cargandoAnteriores}
+            className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500 shadow-sm transition hover:bg-slate-100 disabled:opacity-60"
+          >
+            {cargandoAnteriores ? 'Cargando…' : 'Ver mensajes anteriores'}
+          </button>
+        </div>
+      )}
+
       {entradas.map((entrada) => {
         const dia = diaLegible(entrada.cuando);
         const separador = dia !== ultimoDia;
@@ -292,10 +369,12 @@ export default function Hilo({
 
         const m = entrada.mensaje;
         const mio = m.direccion === 'out';
+        const marca = marcaDe(m);
 
         if (m.eliminado) {
           return (
             <div key={m.id}>
+              {marca && <Divisor texto={marca} />}
               {separador && (
                 <div className="my-4 flex justify-center">
                   <span className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-slate-500 shadow-sm">
@@ -314,6 +393,7 @@ export default function Hilo({
 
         return (
           <div key={m.id}>
+            {marca && <Divisor texto={marca} />}
             {separador && (
               <div className="my-4 flex justify-center">
                 <span className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-slate-500 shadow-sm">
@@ -347,7 +427,7 @@ export default function Hilo({
                 </button>
               )}
 
-              {mio && !m.eliminado && m.waMessageId && (
+              {mio && !m.eliminado && m.waMessageId && !m.importado && (
                 <button
                   onClick={() => onResponder(m)}
                   title="Responder"
@@ -469,7 +549,7 @@ export default function Hilo({
                 Del lado del cliente los botones van despues de la burbuja: es
                 el borde por donde queda el espacio libre.
               */}
-              {!mio && !m.eliminado && m.waMessageId && (
+              {!mio && !m.eliminado && m.waMessageId && !m.importado && (
                 <button
                   onClick={() => onResponder(m)}
                   title="Responder"

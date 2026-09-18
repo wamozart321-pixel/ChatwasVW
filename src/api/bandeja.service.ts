@@ -260,18 +260,55 @@ export class BandejaService {
     return rows[0] ?? Object.fromEntries(vistas.map((v) => [v, 0]));
   }
 
-  /** Hilo paginado hacia atras: `antesDe` es el wa_timestamp del mas viejo ya cargado. */
-  async hilo(conversationId: string, antesDe?: string) {
-    const filtro = antesDe
-      ? and(
-          eq(messages.conversationId, conversationId),
-          lt(messages.waTimestamp, new Date(antesDe)),
-        )
-      : eq(messages.conversationId, conversationId);
+  /**
+   * El hilo de un chat: toda la historia del cliente, paginada hacia atrás.
+   *
+   * Antes traía sólo la conversación abierta. Cuando un cliente vuelve después de
+   * que la suya se resolvió, se abre una conversación nueva —así funciona el
+   * reparto—, y el asesor veía un chat en blanco: lo anterior quedaba escondido en
+   * la resuelta, sin forma de llegar desde ahí. Con el historial importado del
+   * celular eso era el caso normal: el cliente de marzo que escribe hoy aparecía
+   * sin nada.
+   *
+   * Así que trae los mensajes de esta conversación y de las anteriores del mismo
+   * contacto. Las POSTERIORES no: abriendo una resuelta desde el filtro, lo que se
+   * espera ver es esa y lo que vino antes, no la charla de hoy mezclada.
+   *
+   * `antesDe` y `antesId` son el más viejo ya cargado. Van los dos porque con la
+   * fecha sola se perdían mensajes: WhatsApp da la hora al segundo, y cinco fotos
+   * mandadas juntas comparten segundo. Si el corte de página caía en medio, las
+   * del otro lado no aparecían nunca. El par fecha-id no se repite.
+   */
+  async hilo(conversationId: string, antesDe?: string, antesId?: string) {
+    const delCliente = sql`${messages.conversationId} IN (
+      SELECT anteriores.id
+        FROM conversations anteriores
+        JOIN conversations esta ON esta.id = ${conversationId}
+       WHERE anteriores.contact_id = esta.contact_id
+         AND anteriores.created_at <= esta.created_at
+    )`;
+
+    // Un id que no es uuid haría fallar el cast y el hilo devolvería un 500: se
+    // ignora y se pagina sólo por fecha, como antes.
+    const idValido = antesId && /^[0-9a-f-]{36}$/i.test(antesId) ? antesId : null;
+
+    const filtro = !antesDe
+      ? delCliente
+      : idValido
+        ? and(
+            delCliente,
+            sql`(${messages.waTimestamp}, ${messages.id}) < (${new Date(antesDe)}, ${idValido}::uuid)`,
+          )
+        : and(delCliente, lt(messages.waTimestamp, new Date(antesDe)));
 
     const filas = await this.db
       .select({
         id: messages.id,
+        // Para dibujar dónde empieza cada conversación: el hilo ahora cruza varias.
+        conversationId: messages.conversationId,
+        // Lo traído del celular. No se puede citar —su wamid no existe en Meta— y la
+        // bandeja lo marca como historial.
+        importado: sql<boolean>`coalesce((${messages.raw} ->> 'importado')::boolean, false)`,
         waMessageId: messages.waMessageId,
         direccion: messages.direccion,
         tipo: messages.tipo,
@@ -328,7 +365,7 @@ export class BandejaService {
       })
       .from(messages)
       .where(filtro)
-      .orderBy(desc(messages.waTimestamp))
+      .orderBy(desc(messages.waTimestamp), desc(messages.id))
       .limit(PAGINA);
 
     // Se consulta en orden inverso para paginar, se devuelve cronologico.

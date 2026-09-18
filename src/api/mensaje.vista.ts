@@ -29,6 +29,10 @@ export interface CitaDeMensaje {
 
 export interface MensajeDeBandeja {
   id: string;
+  /** El hilo cruza varias conversaciones del cliente: esto dice de cuál es. */
+  conversationId: string;
+  /** Traído del celular por el importador: historial, no se puede citar. */
+  importado: boolean;
   waMessageId: string | null;
   direccion: string;
   tipo: string;
@@ -54,6 +58,7 @@ export interface MensajeDeBandeja {
 /** Una fila de `messages` tal como sale de la base. */
 interface FilaMensaje {
   id: string;
+  conversationId: string;
   waMessageId: string | null;
   direccion: string;
   tipo: string;
@@ -93,6 +98,8 @@ export function aVistaDeMensaje(fila: FilaMensaje | Record<string, unknown>): Me
 
   return {
     id: f.id,
+    conversationId: f.conversationId,
+    importado: raw.importado === true,
     waMessageId: f.waMessageId ?? null,
     direccion: f.direccion,
     tipo: f.tipo,
