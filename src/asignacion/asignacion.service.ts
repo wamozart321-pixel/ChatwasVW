@@ -126,13 +126,7 @@ export class AsignacionService implements OnModuleInit, OnApplicationShutdown {
 
   /** Pasarsela a otro asesor. Un asesor solo puede ceder las propias. */
   async asignar(conversationId: string, destinoId: string, quien: Asesor) {
-    const [destino] = await this.db
-      .select({ id: users.id, nombre: users.nombre, activo: users.activo })
-      .from(users)
-      .where(eq(users.id, destinoId))
-      .limit(1);
-
-    if (!destino?.activo) throw new NotFoundException('asesor destino inexistente o inactivo');
+    const destino = await this.destinoActivo(destinoId);
 
     const puedeCualquiera = quien.rol !== 'asesor';
 
@@ -197,13 +191,7 @@ export class AsignacionService implements OnModuleInit, OnApplicationShutdown {
       throw new BadRequestException('la cantidad va de 1 a 50');
     }
 
-    const [destino] = await this.db
-      .select({ id: users.id, nombre: users.nombre, activo: users.activo })
-      .from(users)
-      .where(eq(users.id, destinoId))
-      .limit(1);
-
-    if (!destino?.activo) throw new NotFoundException('asesor destino inexistente o inactivo');
+    const destino = await this.destinoActivo(destinoId);
 
     const { rows } = await this.db.execute<{ id: string }>(sql`
       UPDATE conversations c
@@ -251,6 +239,90 @@ export class AsignacionService implements OnModuleInit, OnApplicationShutdown {
       quedanEnCola: quedan,
       asesor: { id: destino.id, nombre: destino.nombre },
     };
+  }
+
+  /**
+   * Reparto a mano de un cliente puntual: la otra opción del panel de Equipo.
+   *
+   * Pasar un chat ya se podía desde el chat mismo; desde el panel faltaba, y es
+   * donde hace falta: el supervisor está repartiendo, elige al asesor, busca al
+   * cliente y se lo da, sin ir y volver entre pantallas.
+   *
+   * Si la conversación estaba resuelta —los clientes importados del celular lo
+   * están todos— se reabre. Asignada pero resuelta no le aparecería al asesor
+   * entre sus activas: quedaría a su nombre sin que nadie se enterara.
+   *
+   * Mismo criterio que el reparto de la cola: el evento va a nombre de quien
+   * recibe, queda como asignación a mano (el rescate no se la quita) y le llega un
+   * aviso.
+   */
+  async asignarCliente(conversationId: string, destinoId: string, quien: Asesor) {
+    if (quien.rol === 'asesor') {
+      throw new ForbiddenException('sólo un supervisor o el administrador reparten clientes');
+    }
+
+    const destino = await this.destinoActivo(destinoId);
+
+    let filas: { id: string; estaba: string }[];
+    try {
+      // `antes` guarda el estado previo: el UPDATE lo cambia, y hay que saber si
+      // se reabrió para decirlo y dejarlo en la historia.
+      ({ rows: filas } = await this.db.execute<{ id: string; estaba: string }>(sql`
+        WITH antes AS (
+          SELECT id, estado FROM conversations WHERE id = ${conversationId} FOR UPDATE
+        )
+        UPDATE conversations c
+           SET assigned_to = ${destinoId},
+               assigned_at = clock_timestamp(),
+               asignada_auto = false,
+               estado = CASE WHEN c.estado = 'resuelto' THEN 'abierto' ELSE c.estado END,
+               updated_at = clock_timestamp()
+          FROM antes
+         WHERE c.id = antes.id
+        RETURNING c.id, antes.estado AS estaba
+      `));
+    } catch (e) {
+      // El índice que deja una sola conversación viva por cliente: ésta es una
+      // resuelta vieja y el cliente ya tiene otra abierta. Hay que asignar esa.
+      const err = e as { code?: string; cause?: { code?: string } };
+      if ((err.code ?? err.cause?.code) === '23505') {
+        throw new ConflictException({
+          error: 'ya_tiene_viva',
+          mensaje: 'ese cliente ya tiene otra conversación abierta: asigná esa',
+        });
+      }
+      throw e;
+    }
+
+    if (!filas.length) throw new NotFoundException('conversacion inexistente');
+    const reabierta = filas[0]!.estaba === 'resuelto';
+
+    await this.registrar(conversationId, destinoId, 'reparto_manual', {
+      porId: quien.id,
+      porNombre: quien.nombre,
+      reabierta,
+    });
+    if (reabierta) {
+      await this.registrar(conversationId, quien.id, 'estado_cambiado', { estado: 'abierto' });
+    }
+
+    this.realtime.asignadaA(destinoId, conversationId, quien.nombre);
+    this.realtime.conversacionActualizada(conversationId);
+    this.log.log(`${quien.nombre} le dio a ${destino.nombre} la conversación ${conversationId}`);
+
+    return { ok: true, reabierta, asesor: { id: destino.id, nombre: destino.nombre } };
+  }
+
+  /** El asesor al que se le asigna algo: tiene que existir y estar activo. */
+  private async destinoActivo(destinoId: string) {
+    const [destino] = await this.db
+      .select({ id: users.id, nombre: users.nombre, activo: users.activo })
+      .from(users)
+      .where(eq(users.id, destinoId))
+      .limit(1);
+
+    if (!destino?.activo) throw new NotFoundException('asesor destino inexistente o inactivo');
+    return destino;
   }
 
   /**

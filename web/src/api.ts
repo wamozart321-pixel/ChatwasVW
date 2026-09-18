@@ -430,6 +430,13 @@ export const api = {
       body: JSON.stringify({ asesorId }),
     }),
 
+  /** Darle un cliente puntual a un asesor; si estaba resuelto, se reabre. */
+  asignarCliente: (conversationId: string, asesorId: string) =>
+    pedir<{ ok: boolean; reabierta: boolean }>('/asignacion/cliente', {
+      method: 'POST',
+      body: JSON.stringify({ conversationId, asesorId }),
+    }),
+
   /** Repartir la cola de a varios. Sólo supervisor o administrador. */
   asignarDeLaCola: (asesorId: string, cantidad: number) =>
     pedir<{ asignadas: number; pedidas: number; quedanEnCola: number }>('/asignacion/lote', {

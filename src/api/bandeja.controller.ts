@@ -143,6 +143,16 @@ export class BandejaController {
     return this.asignacion.soltar(id, asesor);
   }
 
+  /** Darle un cliente puntual a un asesor. Ver AsignacionService.asignarCliente. */
+  @Post('asignacion/cliente')
+  @UseGuards(SupervisorGuard)
+  asignarCliente(
+    @Body() body: { conversationId: string; asesorId: string },
+    @AsesorActual() asesor: Asesor,
+  ) {
+    return this.asignacion.asignarCliente(body.conversationId, body.asesorId, asesor);
+  }
+
   /** Repartir la cola de a varios. Ver AsignacionService.asignarDeLaCola. */
   @Post('asignacion/lote')
   @UseGuards(SupervisorGuard)

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, type Asesor, type ChatDeAsesor, type MiembroEquipo } from '../api';
+import { api, type Asesor, type ChatDeAsesor, type Conversacion, type MiembroEquipo } from '../api';
 
 /** Hace cuánto que el cliente escribió, para ver qué lleva más esperando. */
 function haceCuanto(iso: string | null): string {
@@ -12,6 +12,13 @@ function haceCuanto(iso: string | null): string {
   const horas = Math.floor(minutos / 60);
   if (horas < 24) return `hace ${horas} h`;
   return `hace ${Math.floor(horas / 24)} d`;
+}
+
+/** Cómo está un cliente de la búsqueda, visto desde el asesor al que se le quiere dar. */
+function comoEsta(c: Conversacion, asesorId: string): { texto: string; puede: boolean } {
+  if (c.estado !== 'resuelto' && c.asignadoId === asesorId) return { texto: 'ya es suyo', puede: false };
+  if (c.estado === 'resuelto') return { texto: 'resuelta · se reabre', puede: true };
+  return { texto: c.asignadoNombre ? `de ${c.asignadoNombre}` : 'sin asignar', puede: true };
 }
 
 /**
@@ -60,6 +67,66 @@ export default function PanelEquipo({
   const [resultado, setResultado] = useState('');
   // Sube para volver a pedir los chats del desplegado después de repartir.
   const [recarga, setRecarga] = useState(0);
+
+  /*
+   * Las dos formas de darle trabajo a alguien: una cantidad de la cola, o un
+   * cliente puntual buscado por nombre o número. Las dos quedan igual: a mano, a
+   * nombre de quien recibe, con aviso.
+   */
+  const [modo, setModo] = useState<'cola' | 'cliente'>('cola');
+  const [busqueda, setBusqueda] = useState('');
+  const [resultados, setResultados] = useState<Conversacion[] | null>(null);
+
+  // La búsqueda es la misma de la lista de chats, con un respiro para no pedir
+  // una vez por letra. Un cliente con varias conversaciones sale una sola vez: la
+  // lista viene por último mensaje, así que queda la viva, o la más reciente.
+  useEffect(() => {
+    const q = busqueda.trim();
+    if (modo !== 'cliente' || q.length < 2) {
+      setResultados(null);
+      return;
+    }
+
+    let vigente = true;
+    const t = setTimeout(() => {
+      api
+        .conversaciones('todas', q, 'todos')
+        .then((lista) => {
+          if (!vigente) return;
+          const vistos = new Set<string>();
+          setResultados(
+            lista
+              .filter((c) => (vistos.has(c.contactoId) ? false : (vistos.add(c.contactoId), true)))
+              .slice(0, 6),
+          );
+        })
+        .catch(() => vigente && setResultados([]));
+    }, 300);
+
+    return () => {
+      vigente = false;
+      clearTimeout(t);
+    };
+  }, [busqueda, modo]);
+
+  async function darCliente(c: Conversacion, m: MiembroEquipo) {
+    setRepartiendo(true);
+    setResultado('');
+    try {
+      const r = await api.asignarCliente(c.id, m.id);
+      setResultado(
+        `${c.contacto ?? '+' + c.telefono} quedó con ${m.nombre}${r.reabierta ? ' (se reabrió)' : ''}.`,
+      );
+      setBusqueda('');
+      setRecarga((n) => n + 1);
+      void api.equipo().then(setEquipo).catch(() => undefined);
+    } catch (e) {
+      const err = e as { datos?: { mensaje?: string }; message?: string };
+      setResultado(err.datos?.mensaje ?? err.message ?? 'No se pudo asignar');
+    } finally {
+      setRepartiendo(false);
+    }
+  }
 
   async function repartir(m: MiembroEquipo) {
     setRepartiendo(true);
@@ -241,7 +308,57 @@ export default function PanelEquipo({
                       ))
                     )}
 
-                    <div className="flex items-center gap-1.5 border-t border-slate-100 px-4 py-2">
+                    <div className="flex gap-1 border-t border-slate-100 px-4 pt-2">
+                      {(['cola', 'cliente'] as const).map((k) => (
+                        <button
+                          key={k}
+                          onClick={() => {
+                            setModo(k);
+                            setResultado('');
+                          }}
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition ${
+                            modo === k
+                              ? 'bg-slate-800 text-white'
+                              : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                          }`}
+                        >
+                          {k === 'cola' ? 'Cantidad de la cola' : 'Un cliente'}
+                        </button>
+                      ))}
+                    </div>
+
+                    {modo === 'cliente' ? (
+                      <div className="px-4 py-2">
+                        <input
+                          value={busqueda}
+                          onChange={(e) => setBusqueda(e.target.value)}
+                          placeholder="Nombre o número del cliente"
+                          className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] outline-none focus:border-marca-500"
+                        />
+                        {resultados?.map((c) => {
+                          const como = comoEsta(c, m.id);
+                          return (
+                            <div key={c.id} className="flex items-center gap-2 pt-1.5">
+                              <span className="min-w-0 flex-1 truncate text-[11px] text-slate-700">
+                                {c.contacto ?? `+${c.telefono}`}
+                              </span>
+                              <span className="shrink-0 text-[10px] text-slate-400">{como.texto}</span>
+                              <button
+                                onClick={() => void darCliente(c, m)}
+                                disabled={repartiendo || !como.puede}
+                                className="shrink-0 rounded-md bg-marca-500 px-2 py-0.5 text-[11px] font-medium text-white transition hover:bg-marca-600 disabled:opacity-40"
+                              >
+                                Dar
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {resultados && resultados.length === 0 && (
+                          <p className="pt-1.5 text-[10px] text-slate-400">Ningún cliente con eso.</p>
+                        )}
+                      </div>
+                    ) : (
+                    <div className="flex items-center gap-1.5 px-4 py-2">
                       <span className="text-[11px] text-slate-600">Darle de la cola</span>
                       <button
                         onClick={() => setCantidad((c) => Math.max(1, c - 1))}
@@ -269,10 +386,11 @@ export default function PanelEquipo({
                         {enCola === null ? '' : enCola === 0 ? 'cola vacía' : `${enCola} esperando`}
                       </span>
                     </div>
+                    )}
 
                     {/* Se puede pasar del tope a propósito —el supervisor sabe algo
                         que el ruteo no—, pero que se vea antes de hacerlo. */}
-                    {m.activas + cantidad > m.tope && !resultado && (
+                    {m.activas + (modo === 'cola' ? cantidad : 1) > m.tope && !resultado && (
                       <p className="px-4 pb-2 text-[10px] text-amber-600">
                         Queda por encima de su tope ({m.tope}).
                       </p>
