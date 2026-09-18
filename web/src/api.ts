@@ -430,6 +430,13 @@ export const api = {
       body: JSON.stringify({ asesorId }),
     }),
 
+  /** Repartir la cola de a varios. Sólo supervisor o administrador. */
+  asignarDeLaCola: (asesorId: string, cantidad: number) =>
+    pedir<{ asignadas: number; pedidas: number; quedanEnCola: number }>('/asignacion/lote', {
+      method: 'POST',
+      body: JSON.stringify({ asesorId, cantidad }),
+    }),
+
   // --- archivos ---
 
   enviarArchivo: async (id: string, archivo: File, caption?: string, respondeA?: string | null) => {

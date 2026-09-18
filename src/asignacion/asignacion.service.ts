@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Inject,
@@ -165,6 +166,91 @@ export class AsignacionService implements OnModuleInit, OnApplicationShutdown {
     this.log.log(`${quien.nombre} asignó ${conversationId} a ${destino.nombre}`);
 
     return { ok: true, asesor: { id: destino.id, nombre: destino.nombre } };
+  }
+
+  /**
+   * Reparto a mano: las `cantidad` que más esperan en la cola, a un asesor.
+   *
+   * Pasar un chat puntual ya se podía (asignar); lo que faltaba era repartir la
+   * cola de a varios: "dale cinco a Andrés". El reparto automático no alcanza
+   * cuando el supervisor sabe algo que el sistema no —quién está libre de verdad,
+   * quién conoce a esos clientes—, y hacerlo de a un chat con la cola llena es
+   * medio minuto de clics.
+   *
+   * Toma la cola igual que la ve el supervisor en Métricas → Sin asignar: sin
+   * dueño, no resuelta, y la que más espera primero. Si el número del panel y lo
+   * que se reparte salieran de criterios distintos, no cuadrarían.
+   *
+   * Todo en un UPDATE con SKIP LOCKED: si mientras tanto un asesor toma uno, o el
+   * ruteo le asigna otro, ése se saltea y no queda con dos dueños. Por eso puede
+   * asignar menos de las pedidas, y lo dice.
+   *
+   * El evento va a nombre de quien RECIBE, como el reparto automático: las
+   * métricas cuentan las atendidas por el usuario del evento, y a nombre del
+   * supervisor le sumarían a él las cinco y al asesor ninguna.
+   */
+  async asignarDeLaCola(destinoId: string, cantidad: number, quien: Asesor) {
+    if (quien.rol === 'asesor') {
+      throw new ForbiddenException('sólo un supervisor o el administrador reparten la cola');
+    }
+    if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > 50) {
+      throw new BadRequestException('la cantidad va de 1 a 50');
+    }
+
+    const [destino] = await this.db
+      .select({ id: users.id, nombre: users.nombre, activo: users.activo })
+      .from(users)
+      .where(eq(users.id, destinoId))
+      .limit(1);
+
+    if (!destino?.activo) throw new NotFoundException('asesor destino inexistente o inactivo');
+
+    const { rows } = await this.db.execute<{ id: string }>(sql`
+      UPDATE conversations c
+         SET assigned_to = ${destinoId},
+             assigned_at = clock_timestamp(),
+             -- A mano: el rescate no se las quita por no contestar en 5 min.
+             asignada_auto = false,
+             updated_at = clock_timestamp()
+       WHERE c.id IN (
+               SELECT id FROM conversations
+                WHERE assigned_to IS NULL AND estado <> 'resuelto'
+                ORDER BY last_inbound_at ASC NULLS LAST
+                LIMIT ${cantidad}
+                FOR UPDATE SKIP LOCKED
+             )
+         AND c.assigned_to IS NULL
+      RETURNING c.id
+    `);
+
+    for (const { id } of rows) {
+      await this.registrar(id, destinoId, 'reparto_manual', {
+        porId: quien.id,
+        porNombre: quien.nombre,
+      });
+      this.realtime.conversacionActualizada(id);
+    }
+
+    // Un solo aviso con la cantidad: cinco notificaciones seguidas en el
+    // escritorio del asesor se leen como un error, no como trabajo nuevo.
+    if (rows.length) {
+      this.realtime.asignadaA(destinoId, rows[0]!.id, quien.nombre, rows.length);
+    }
+
+    const [{ quedan }] = (
+      await this.db.execute<{ quedan: number }>(sql`
+        SELECT count(*)::int AS quedan FROM conversations
+         WHERE assigned_to IS NULL AND estado <> 'resuelto'`)
+    ).rows;
+
+    this.log.log(`${quien.nombre} le repartió ${rows.length} de la cola a ${destino.nombre}`);
+
+    return {
+      asignadas: rows.length,
+      pedidas: cantidad,
+      quedanEnCola: quedan,
+      asesor: { id: destino.id, nombre: destino.nombre },
+    };
   }
 
   /**

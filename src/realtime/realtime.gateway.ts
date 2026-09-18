@@ -237,10 +237,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   /** Aviso directo: "te asignaron esta conversacion". */
-  asignadaA(asesorId: string, conversationId: string, porNombre: string | null) {
+  /** `cantidad` sólo en el reparto en lote: un aviso por todas, no uno por cada una. */
+  asignadaA(asesorId: string, conversationId: string, porNombre: string | null, cantidad = 1) {
     this.server.to(RealtimeGateway.SALA_ASESOR + asesorId).emit('conversacion:asignada', {
       conversationId,
       por: porNombre,
+      cantidad,
     });
   }
 

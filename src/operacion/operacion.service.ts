@@ -250,7 +250,7 @@ export class OperacionService {
         u.nombre,
         (SELECT count(DISTINCT e.conversation_id)::int FROM events e
           WHERE e.user_id = u.id
-            AND e.tipo IN ('tomada', 'reasignada', 'ruteo_pegajoso', 'reparto_menor_carga')
+            AND e.tipo IN ('tomada', 'reasignada', 'ruteo_pegajoso', 'reparto_menor_carga', 'reparto_manual')
             AND e.created_at >= now() - make_interval(days => ${dias}))   AS atendidas,
         (SELECT count(*)::int FROM events e
           WHERE e.user_id = u.id

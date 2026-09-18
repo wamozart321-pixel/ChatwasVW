@@ -143,6 +143,16 @@ export class BandejaController {
     return this.asignacion.soltar(id, asesor);
   }
 
+  /** Repartir la cola de a varios. Ver AsignacionService.asignarDeLaCola. */
+  @Post('asignacion/lote')
+  @UseGuards(SupervisorGuard)
+  asignarDeLaCola(
+    @Body() body: { asesorId: string; cantidad: number },
+    @AsesorActual() asesor: Asesor,
+  ) {
+    return this.asignacion.asignarDeLaCola(body.asesorId, Number(body.cantidad), asesor);
+  }
+
   @Post('conversaciones/:id/asignar')
   asignar(
     @Param('id') id: string,

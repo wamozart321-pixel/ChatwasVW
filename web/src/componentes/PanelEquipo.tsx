@@ -46,6 +46,44 @@ export default function PanelEquipo({
   // seguridad, es no ofrecer lo que no corresponde.
   const puedeVerChats = yo.rol !== 'asesor';
 
+  /*
+   * Repartir la cola de a varios.
+   *
+   * Pasar un chat puntual se hace desde el chat mismo; esto es para "dale cinco a
+   * Andrés", que de a uno es medio minuto de clics con la cola llena. El número
+   * de la cola es el mismo de Métricas → Sin asignar, y el servidor reparte
+   * empezando por la que más espera.
+   */
+  const [enCola, setEnCola] = useState<number | null>(null);
+  const [cantidad, setCantidad] = useState(3);
+  const [repartiendo, setRepartiendo] = useState(false);
+  const [resultado, setResultado] = useState('');
+  // Sube para volver a pedir los chats del desplegado después de repartir.
+  const [recarga, setRecarga] = useState(0);
+
+  async function repartir(m: MiembroEquipo) {
+    setRepartiendo(true);
+    setResultado('');
+    try {
+      const r = await api.asignarDeLaCola(m.id, cantidad);
+      setResultado(
+        r.asignadas === 0
+          ? 'La cola estaba vacía: no se asignó nada.'
+          : r.asignadas < r.pedidas
+            ? `Sólo había ${r.asignadas} en la cola: se le asignaron todas.`
+            : `Se le asignaron ${r.asignadas}.`,
+      );
+      setEnCola(r.quedanEnCola);
+      setRecarga((n) => n + 1);
+      void api.equipo().then(setEquipo).catch(() => undefined);
+    } catch (e) {
+      const err = e as { datos?: { mensaje?: string }; message?: string };
+      setResultado(err.datos?.mensaje ?? err.message ?? 'No se pudo asignar');
+    } finally {
+      setRepartiendo(false);
+    }
+  }
+
   useEffect(() => {
     if (!abierto) return;
 
@@ -59,16 +97,24 @@ export default function PanelEquipo({
     return () => {
       vigente = false;
     };
-  }, [abierto]);
+  }, [abierto, recarga]);
 
   useEffect(() => {
     let vigente = true;
 
-    const cargar = () =>
-      api
+    const cargar = () => {
+      // Cuántos esperan, para saber qué se puede repartir. Sólo quien supervisa.
+      if (puedeVerChats) {
+        void api
+          .resumenCola()
+          .then((r) => vigente && setEnCola(r.sinAsignar))
+          .catch(() => undefined);
+      }
+      return api
         .equipo()
         .then((e) => vigente && setEquipo(e))
         .catch(() => vigente && setError('No se pudo cargar el equipo'));
+    };
 
     void cargar();
 
@@ -109,13 +155,14 @@ export default function PanelEquipo({
             return (
               <div key={m.id} className="border-b border-slate-50 last:border-0">
                 <div
+                  // Se despliega aunque tenga cero: a quien no tiene nada es justo a
+                  // quien se le quiere dar trabajo, y antes no se podía abrir.
                   onClick={() => {
-                    if (!puedeVerChats || m.activas === 0) return;
+                    if (!puedeVerChats) return;
                     setAbierto((a) => (a === m.id ? null : m.id));
+                    setResultado('');
                   }}
-                  className={`px-4 py-2.5 ${
-                    puedeVerChats && m.activas > 0 ? 'cursor-pointer hover:bg-slate-50' : ''
-                  }`}
+                  className={`px-4 py-2.5 ${puedeVerChats ? 'cursor-pointer hover:bg-slate-50' : ''}`}
                 >
                 <div className="flex items-center gap-2">
                   <span
@@ -148,7 +195,7 @@ export default function PanelEquipo({
                       {m.sinLeer} sin leer
                     </span>
                   )}
-                  {puedeVerChats && m.activas > 0 && (
+                  {puedeVerChats && (
                     <span className="shrink-0 text-[10px] text-slate-300">
                       {abierto === m.id ? '▾' : '▸'}
                     </span>
@@ -193,6 +240,44 @@ export default function PanelEquipo({
                         </button>
                       ))
                     )}
+
+                    <div className="flex items-center gap-1.5 border-t border-slate-100 px-4 py-2">
+                      <span className="text-[11px] text-slate-600">Darle de la cola</span>
+                      <button
+                        onClick={() => setCantidad((c) => Math.max(1, c - 1))}
+                        className="size-5 rounded border border-slate-200 bg-white text-xs text-slate-500 hover:bg-slate-100"
+                      >
+                        −
+                      </button>
+                      <span className="w-5 text-center text-xs font-semibold text-slate-800">
+                        {cantidad}
+                      </span>
+                      <button
+                        onClick={() => setCantidad((c) => Math.min(20, c + 1))}
+                        className="size-5 rounded border border-slate-200 bg-white text-xs text-slate-500 hover:bg-slate-100"
+                      >
+                        +
+                      </button>
+                      <button
+                        onClick={() => void repartir(m)}
+                        disabled={repartiendo || enCola === 0}
+                        className="rounded-md bg-marca-500 px-2 py-0.5 text-[11px] font-medium text-white transition hover:bg-marca-600 disabled:opacity-40"
+                      >
+                        {repartiendo ? '…' : 'Asignar'}
+                      </button>
+                      <span className="ml-auto text-[10px] text-slate-400">
+                        {enCola === null ? '' : enCola === 0 ? 'cola vacía' : `${enCola} esperando`}
+                      </span>
+                    </div>
+
+                    {/* Se puede pasar del tope a propósito —el supervisor sabe algo
+                        que el ruteo no—, pero que se vea antes de hacerlo. */}
+                    {m.activas + cantidad > m.tope && !resultado && (
+                      <p className="px-4 pb-2 text-[10px] text-amber-600">
+                        Queda por encima de su tope ({m.tope}).
+                      </p>
+                    )}
+                    {resultado && <p className="px-4 pb-2 text-[10px] text-marca-700">{resultado}</p>}
                   </div>
                 )}
               </div>

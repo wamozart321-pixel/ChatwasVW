@@ -304,8 +304,15 @@ export default function App() {
       );
     });
 
-    socket.on('conversacion:asignada', ({ conversationId, por }) => {
-      const texto = por ? `${por} te pasó una conversación` : 'Te asignaron una conversación';
+    socket.on('conversacion:asignada', ({ conversationId, por, cantidad }) => {
+      // En el reparto en lote llega un solo aviso con la cantidad: cinco
+      // notificaciones seguidas se leen como un error, no como trabajo nuevo.
+      const texto =
+        cantidad > 1
+          ? `${por ?? 'El supervisor'} te asignó ${cantidad} conversaciones`
+          : por
+            ? `${por} te pasó una conversación`
+            : 'Te asignaron una conversación';
       setAviso(texto);
       // Este sí sale siempre, aunque la app esté minimizada: es trabajo que
       // acaba de quedar a nombre del asesor y nadie más lo va a atender.
